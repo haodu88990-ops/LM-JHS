@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>保费测算工具</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Microsoft YaHei", sans-serif;
+    background: #f0f2f5; color: #333;
+    min-height: 100vh; display: flex; justify-content: center;
+    padding: 20px;
+  }
+  .container { max-width: 800px; width: 100%; }
+  h1 { font-size: 22px; text-align: center; color: #1a1a2e; margin-bottom: 24px; }
+
+  .card {
+    background: #fff; border-radius: 10px; padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 15px; font-weight: 600; color: #1a1a2e;
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .step { background: #4472C4; color: #fff; border-radius: 50%;
+    width: 22px; height: 22px; display: flex; align-items: center;
+    justify-content: center; font-size: 12px; flex-shrink: 0; }
+
+  /* 上传区域 */
+  .upload-zone {
+    border: 2px dashed #d0d5dd; border-radius: 8px;
+    padding: 40px; text-align: center; cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: #4472C4; background: #f5f7fb;
+  }
+  .upload-zone .icon { font-size: 40px; margin-bottom: 8px; }
+  .upload-zone .hint { color: #999; font-size: 13px; margin-top: 4px; }
+  #file-input { display: none; }
+  .file-selected {
+    display: none; align-items: center; gap: 12px;
+    padding: 12px 16px; background: #f0f7eb; border-radius: 8px;
+    margin-top: 12px; font-size: 14px;
+  }
+  .file-selected .name { font-weight: 600; flex: 1; }
+  .file-selected .remove { color: #c00; cursor: pointer; font-size: 20px; }
+
+  /* 输入 */
+  .input-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+  .input-row label { font-size: 14px; color: #555; min-width: 80px; }
+  .input-row input {
+    flex: 1; padding: 10px 14px; border: 1px solid #d0d5dd;
+    border-radius: 6px; font-size: 14px;
+  }
+  .input-row input:focus { outline: none; border-color: #4472C4; }
+
+  /* 按钮 */
+  .btn {
+    padding: 10px 24px; border: none; border-radius: 6px;
+    font-size: 14px; cursor: pointer; font-weight: 600;
+    transition: opacity .2s;
+  }
+  .btn-primary { background: #4472C4; color: #fff; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-download { background: #28a745; color: #fff; text-decoration: none; display: inline-block; }
+
+  /* 预览区 */
+  .preview { display: none; }
+  .info-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 8px; font-size: 13px; margin-bottom: 12px;
+  }
+  .info-item { display: flex; gap: 8px; }
+  .info-item .k { color: #888; }
+  .info-item .v { font-weight: 600; }
+
+  .dim-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .dim-tag {
+    display: inline-block; padding: 3px 10px;
+    background: #eef2fb; color: #4472C4; border-radius: 12px;
+    font-size: 12px;
+  }
+  .dim-label { font-size: 12px; color: #888; margin-bottom: 4px; }
+
+  .boundary-table {
+    width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px;
+  }
+  .boundary-table th {
+    background: #f5f7fb; padding: 8px 6px; text-align: center;
+    font-weight: 600; color: #555; border-bottom: 1px solid #e0e0e0;
+  }
+  .boundary-table td {
+    padding: 6px; text-align: center; border-bottom: 1px solid #f0f0f0;
+  }
+
+  /* 进度/结果 */
+  .progress-area { display: none; }
+  .progress-bar-wrap {
+    background: #e0e0e0; border-radius: 10px; height: 8px;
+    margin: 16px 0; overflow: hidden;
+  }
+  .progress-bar {
+    background: linear-gradient(90deg, #4472C4, #5B9BD5);
+    height: 100%; width: 0%; border-radius: 10px; transition: width .3s;
+  }
+  .result-stats { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+  .stat {
+    padding: 12px 18px; border-radius: 8px; text-align: center; min-width: 80px;
+  }
+  .stat .num { font-size: 24px; font-weight: 700; }
+  .stat .label { font-size: 12px; color: #888; margin-top: 2px; }
+  .stat-pass { background: #e2efda; color: #375623; }
+  .stat-fail { background: #fce4d6; color: #c00000; }
+  .stat-error { background: #fff2cc; color: #bf8f00; }
+  .stat-total { background: #eef2fb; color: #4472C4; }
+
+  .error-msg {
+    padding: 12px 16px; background: #fce4d6; color: #c00000;
+    border-radius: 8px; font-size: 13px; margin-top: 12px;
+    white-space: pre-wrap; display: none;
+  }
+  .log-line { font-size: 12px; color: #888; padding: 4px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📊 保费测算工具</h1>
+
+  <!-- Step 1: 上传 -->
+  <div class="card">
+    <div class="card-title"><span class="step">1</span> 上传费率表</div>
+    <div class="upload-zone" id="upload-zone">
+      <div class="icon">📁</div>
+      <div>点击上传 或 拖拽到此处</div>
+      <div class="hint">支持 PDF、Excel (.xlsx)</div>
+    </div>
+    <input type="file" id="file-input" accept=".xlsx,.pdf">
+    <div class="file-selected" id="file-selected">
+      <span>📄</span>
+      <span class="name" id="file-name"></span>
+      <span class="remove" id="file-remove" title="移除">✕</span>
+    </div>
+  </div>
+
+  <!-- Step 2: 参数 + 预览 -->
+  <div class="card">
+    <div class="card-title"><span class="step">2</span> 模拟测算参数</div>
+    <div class="input-row">
+      <label>serialNo</label>
+      <input type="text" id="serial-no" placeholder="方案序列号（必填）" autofocus>
+    </div>
+
+    <!-- 预览区 -->
+    <div class="preview" id="preview">
+      <div class="card-title" style="margin-top:16px">📋 费率表解析结果</div>
+      <div class="info-grid" id="info-grid"></div>
+      <div class="dim-label">测算条件</div>
+      <div id="dims"></div>
+      <div class="dim-label" style="margin-top:8px">边界值 (<span id="boundary-count"></span> 条)</div>
+      <div style="max-height:200px;overflow:auto">
+        <table class="boundary-table">
+          <thead><tr>
+            <th>方案</th><th>交费</th><th>性别</th>
+            <th>最小年龄</th><th>最小费率</th>
+            <th>最大年龄</th><th>最大费率</th>
+          </tr></thead>
+          <tbody id="boundary-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: 测算 -->
+  <div class="card">
+    <div class="card-title"><span class="step">3</span> 开始测算</div>
+    <button class="btn btn-primary" id="btn-run" disabled onclick="runTest()">
+      🚀 开始测算
+    </button>
+    <span style="font-size:12px;color:#999;margin-left:12px" id="case-hint"></span>
+
+    <!-- 进度/日志 -->
+    <div class="progress-area" id="progress-area">
+      <div class="log-line" id="log-line">准备中...</div>
+      <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    </div>
+
+    <!-- 结果 -->
+    <div id="result-area"></div>
+    <div class="error-msg" id="error-msg"></div>
+  </div>
+</div>
+
+<script>
+const UPLOAD_ZONE = document.getElementById('upload-zone');
+const FILE_INPUT = document.getElementById('file-input');
+const FILE_SELECTED = document.getElementById('file-selected');
+const FILE_NAME = document.getElementById('file-name');
+const FILE_REMOVE = document.getElementById('file-remove');
+const PREVIEW = document.getElementById('preview');
+const BTN_RUN = document.getElementById('btn-run');
+const CASE_HINT = document.getElementById('case-hint');
+const ERROR_MSG = document.getElementById('error-msg');
+const PROGRESS_AREA = document.getElementById('progress-area');
+const PROGRESS_BAR = document.getElementById('progress-bar');
+const LOG_LINE = document.getElementById('log-line');
+const RESULT_AREA = document.getElementById('result-area');
+
+let currentFile = null;
+let parsedData = null;
+
+// ---- 上传 ----
+UPLOAD_ZONE.addEventListener('click', () => FILE_INPUT.click());
+UPLOAD_ZONE.addEventListener('dragover', e => { e.preventDefault(); UPLOAD_ZONE.classList.add('dragover'); });
+UPLOAD_ZONE.addEventListener('dragleave', () => UPLOAD_ZONE.classList.remove('dragover'));
+UPLOAD_ZONE.addEventListener('drop', e => {
+  e.preventDefault(); UPLOAD_ZONE.classList.remove('dragover');
+  handleFile(e.dataTransfer.files[0]);
+});
+FILE_INPUT.addEventListener('change', () => handleFile(FILE_INPUT.files[0]));
+FILE_REMOVE.addEventListener('click', () => {
+  currentFile = null; parsedData = null;
+  FILE_INPUT.value = '';
+  FILE_SELECTED.style.display = 'none';
+  UPLOAD_ZONE.style.display = '';
+  PREVIEW.style.display = 'none';
+  BTN_RUN.disabled = true;
+  CASE_HINT.textContent = '';
+  RESULT_AREA.innerHTML = '';
+  ERROR_MSG.style.display = 'none';
+});
+
+function handleFile(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['xlsx', 'pdf'].includes(ext)) {
+    alert('仅支持 .xlsx 或 .pdf 文件');
+    return;
+  }
+  currentFile = file;
+  FILE_NAME.textContent = file.name;
+  FILE_SELECTED.style.display = 'flex';
+  UPLOAD_ZONE.style.display = 'none';
+  BTN_RUN.disabled = true;
+  CASE_HINT.textContent = '';
+  RESULT_AREA.innerHTML = '';
+  ERROR_MSG.style.display = 'none';
+  PREVIEW.style.display = 'none';
+  uploadAndParse();
+}
+
+async function uploadAndParse() {
+  ERROR_MSG.style.display = 'none';
+  LOG_LINE.textContent = '正在解析费率表...';
+  PROGRESS_AREA.style.display = 'block';
+
+  const form = new FormData();
+  form.append('file', currentFile);
+
+  try {
+    const resp = await fetch('/api/upload', { method: 'POST', body: form });
+    const data = await resp.json();
+    if (data.error) { showError(data.error); return; }
+
+    parsedData = data;
+    renderPreview(data);
+    BTN_RUN.disabled = false;
+    CASE_HINT.textContent = `预计 ${data.case_count} 条测试用例`;
+    PROGRESS_AREA.style.display = 'none';
+  } catch(e) {
+    showError('上传失败: ' + e.message);
+  }
+}
+
+function renderPreview(d) {
+  document.getElementById('info-grid').innerHTML = `
+    <div class="info-item"><span class="k">产品</span><span class="v">${esc(d.product_name)}</span></div>
+    <div class="info-item"><span class="k">格式</span><span class="v">${d.format === 'grid' ? '行式网格' : '列式'}</span></div>
+    <div class="info-item"><span class="k">算费方向</span><span class="v">${esc(d.data_type)}</span></div>
+    <div class="info-item"><span class="k">费率单位</span><span class="v">每${d.fee_unit}元</span></div>
+    <div class="info-item"><span class="k">舍入规则</span><span class="v">${esc(d.fee_rule)}</span></div>
+    <div class="info-item"><span class="k">边界值</span><span class="v">${d.boundary_count} 条</span></div>
+  `;
+
+  let dimsHtml = '';
+  for (const [k, vals] of Object.entries(d.dims)) {
+    dimsHtml += `<div class="dim-label">${k}</div><div class="dim-tags">${vals.map(v => `<span class="dim-tag">${v}</span>`).join('')}</div>`;
+  }
+  document.getElementById('dims').innerHTML = dimsHtml;
+  document.getElementById('boundary-count').textContent = d.boundary_count;
+
+  let tbody = '';
+  for (const b of d.boundaries) {
+    tbody += `<tr>
+      <td>${esc(b.label)}</td><td>交${b.pay}年</td><td>${b.gender}</td>
+      <td>${b.min_age}岁</td><td>${b.min_rate}‰</td>
+      <td>${b.max_age}岁</td><td>${b.max_rate}‰</td>
+    </tr>`;
+  }
+  document.getElementById('boundary-tbody').innerHTML = tbody;
+  PREVIEW.style.display = 'block';
+}
+
+// ---- 测算 ----
+async function runTest() {
+  const serialNo = document.getElementById('serial-no').value.trim();
+  if (!serialNo) { alert('请输入 serialNo'); return; }
+
+  BTN_RUN.disabled = true;
+  BTN_RUN.textContent = '⏳ 测算中...';
+  RESULT_AREA.innerHTML = '';
+  ERROR_MSG.style.display = 'none';
+  PROGRESS_AREA.style.display = 'block';
+  PROGRESS_BAR.style.width = '0%';
+  LOG_LINE.textContent = '🔑 登录中...';
+
+  try {
+    const resp = await fetch('/api/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        serial_no: serialNo,
+        file_path: parsedData.file_path,
+        original_path: currentFile.path || '',
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) { showError(data.error); return; }
+
+    PROGRESS_BAR.style.width = '100%';
+    LOG_LINE.textContent = '✅ 测算完成';
+
+    RESULT_AREA.innerHTML = `
+      <div class="result-stats">
+        <div class="stat stat-total"><div class="num">${data.stats.total}</div><div class="label">总用例</div></div>
+        <div class="stat stat-pass"><div class="num">${data.stats.pass}</div><div class="label">PASS</div></div>
+        <div class="stat stat-fail"><div class="num">${data.stats.fail}</div><div class="label">FAIL</div></div>
+        <div class="stat stat-error"><div class="num">${data.stats.error}</div><div class="label">ERROR</div></div>
+      </div>
+      <div style="margin-top:16px;font-size:14px">
+        通过率: <strong>${data.stats.pass_rate}</strong>
+        &nbsp;&nbsp;
+        <a class="btn btn-download" href="file://${data.report_path}" target="_blank">📥 打开报告</a>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:#999">
+        报告位置: ${data.report_path}
+      </div>
+    `;
+  } catch(e) {
+    showError('请求失败: ' + e.message);
+  } finally {
+    BTN_RUN.disabled = false;
+    BTN_RUN.textContent = '🚀 开始测算';
+  }
+}
+
+function showError(msg) {
+  ERROR_MSG.textContent = msg;
+  ERROR_MSG.style.display = 'block';
+  PROGRESS_AREA.style.display = 'none';
+  BTN_RUN.disabled = false;
+  BTN_RUN.textContent = '🚀 开始测算';
+}
+
+function esc(s) { return String(s || '').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>

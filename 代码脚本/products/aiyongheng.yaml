@@ -1,0 +1,73 @@
+# ============================================================
+# 中英爱永恒终身寿险A款（分红型）
+# ============================================================
+product_name: "中英爱永恒终身寿险A款（分红型）"
+
+api:
+  base_url: "https://kfzxtb.lmbaoxian.com:13080"
+  login_endpoint: "/broker/api/user/login.html"
+  age_rate_endpoint: "/broker/api/prospectus/saveCustomer.html"
+  plan_rate_endpoint: "/broker/api/prospectus/saveProductExt.html"
+  verify_ssl: false
+  timeout: 30
+
+credentials:
+  account: "15856990088"
+  password_md5: "dc483e80a7a0bd9ef71d8cf973673924"
+
+product:
+  product_id: "991452"
+  company_id: "100080"
+  # serial_no 和 proposal_id 必须由用户在运行时提供
+
+defaults:
+  insurant_id: 85320
+  insurant_occ_level: 1
+  insurant_social_insurance: "1"
+  policy_holder_id: 85321
+  policy_holder_age: 30
+  policy_holder_sex: "1"
+  dividend_draw_type: "2"
+  request_type: "prospectus"
+
+mappings:
+  gender:
+    "男": "1"
+    "女": "2"
+  ensure_period:
+    "终身": "TO105"
+  pay_mode:
+    single: "1"
+    annual: "5"
+  pay_period:
+    "趸交": "1"
+    "1年": "1"
+    "3年": "3"
+    "5年": "5"
+    "10年": "10"
+    "15年": "15"
+    "20年": "20"
+    "30年": "30"
+
+plans:
+  type: simple
+
+age_limits:
+  preferred: { min: 18, max: 65 }
+  by_pay_period:
+    1:  { min: 0, max: 69 }
+    3:  { min: 0, max: 65 }
+    5:  { min: 0, max: 62 }
+    10: { min: 0, max: 62 }
+    15: { min: 0, max: 60 }
+    20: { min: 0, max: 59 }
+    30: { min: 0, max: 50 }
+
+test:
+  amount: { min: 1000000, max: 5000000, step: 1000 }
+  tolerance: 0.01
+  throttle: { interval: 5, sleep: 0.3 }
+
+output:
+  boundary_summary: "中英爱永恒A款分红边界值汇总.xlsx"
+  test_report: "API测试报告_{timestamp}.xlsx"

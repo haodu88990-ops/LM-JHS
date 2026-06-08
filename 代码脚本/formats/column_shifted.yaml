@@ -1,0 +1,55 @@
+# ============================================================
+# 列式费率表 — 下移表头变体 (column)
+# ============================================================
+# 表头行在 6-9 行，且同一 Sheet 内通过 column_start/column_end 分区段。
+#
+# 典型结构:
+#   Row 6: 保障方案  | 方案一(cols 2-15) | 方案二(cols 16-29) | ...
+#   Row 7: 保险期间  | 终身 | ...
+#   Row 8: 交费期间  | 趸交 | 3年 | ...
+#   Row 9: 性别      | 男 | 女 | ...
+#   Row 10+: 年龄(Col1) + 费率
+
+format_name: "列式费率表（下移表头/分区段）"
+format_type: column
+
+layout:
+  header_rows:
+    plan: 6
+    period: 7
+    pay_period: 8
+    gender: 9
+  data_start_row: 10
+  data_end_row: 80
+  age_column: 1
+  rate_columns_start: 2
+
+sections:
+  # 标准体 — 方案一
+  - sheet: "基本保险金额对应费率表"
+    label: "标准体-方案一"
+    ensure_plan: "7"
+    plan_override: 0
+    column_start: 2
+    column_end: 15
+  # 标准体 — 方案二
+  - sheet: "基本保险金额对应费率表"
+    label: "标准体-方案二"
+    ensure_plan: "9"
+    plan_override: 0
+    column_start: 16
+    column_end: 29
+  # 优选体 — 方案一
+  - sheet: "基本保险金额对应费率表"
+    label: "优选体-方案一"
+    ensure_plan: "7"
+    plan_override: 0
+    column_start: 32
+    column_end: 45
+  # 优选体 — 方案二
+  - sheet: "基本保险金额对应费率表"
+    label: "优选体-方案二"
+    ensure_plan: "9"
+    plan_override: 0
+    column_start: 46
+    column_end: 59

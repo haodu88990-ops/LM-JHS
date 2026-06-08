@@ -1,0 +1,26 @@
+# ============================================================
+# 行式网格费率表格式 (grid)
+# ============================================================
+# 横向展开的网格布局。
+#
+# 典型结构:
+#   Row 3: PREMIUM | pay_period | 1 | 1 | 3 | 3 | 5 | 5 | ...
+#   Row 4: (空)    | age\sex   | M | F | M | F | M | F | ...
+#   Row 5+: (空)   | 0          | 费率 | ...
+
+format_name: "行式网格费率表"
+format_type: grid
+
+layout:
+  pay_period_row: 3
+  gender_row: 4
+  data_start_row: 5
+  age_column: 2
+  rate_columns_start: 3
+
+# 要读取的 Sheet 区段（可在 CLI 覆盖）
+sections:
+  - sheet: "费率"
+    label: "标准体"
+    ensure_plan: "1"
+    plan_override: 0

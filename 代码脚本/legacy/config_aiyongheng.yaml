@@ -1,0 +1,153 @@
+# ============================================================
+# 中英爱永恒终身寿险A款（分红型）产品配置
+# ============================================================
+# 费率表布局特点：
+#   - 单 Sheet，表头在 6-9 行（不同于瑞泰的 4-7 行）
+#   - 同一 Sheet 内含两个风险分类：标准体(cols 2-29) 和 非吸烟超优体(cols 32-59)
+#   - 每个风险分类内又分 方案一 和 方案二
+#   - 交费期间含"趸交"等中文值
+#
+# 本配置用 4 个"虚拟 Sheet"（通过 column_start/column_end 限定列范围）
+# 来处理同一物理 Sheet 内的不同区域。
+
+product_name: "中英爱永恒终身寿险A款（分红型）"
+
+# ---- API 连接 ----
+api:
+  base_url: "https://kfzxtb.lmbaoxian.com:13080"
+  login_endpoint: "/broker/api/user/login.html"
+  age_rate_endpoint: "/broker/api/prospectus/saveCustomer.html"
+  plan_rate_endpoint: "/broker/api/prospectus/saveProductExt.html"
+  verify_ssl: false
+  timeout: 30
+
+# ---- 登录凭据 ----
+credentials:
+  account: "15856990088"
+  password_md5: "dc483e80a7a0bd9ef71d8cf973673924"
+
+# ---- 产品标识 ----
+product:
+  product_id: "991452"
+  company_id: "100080"
+  serial_no: "1491455820292947968"
+  proposal_id: "40472"
+
+# ---- 固定请求参数 ----
+defaults:
+  insurant_id: 85320
+  insurant_occ_level: 1
+  insurant_social_insurance: "1"
+  policy_holder_id: 85321
+  policy_holder_age: 30
+  policy_holder_sex: "1"
+  dividend_draw_type: "2"
+  request_type: "prospectus"
+
+# ---- 费率表 ----
+# 4 个虚拟 Sheet 分别对应: 标准体/优选体 × 方案一/方案二
+rate_table:
+  file: "费率表.xlsx"
+  sheets:
+    # 标准体 - 方案一 (cols 2-15, 7个交费期间×男女=14列)
+    - name: "基本保险金额对应费率表"
+      ensure_plan: "7"
+      label: "方案一"
+      plan_override: 0
+      column_start: 2
+      column_end: 15
+
+    # 标准体 - 方案二 (cols 16-29)
+    - name: "基本保险金额对应费率表"
+      ensure_plan: "9"
+      label: "方案二"
+      plan_override: 0
+      column_start: 16
+      column_end: 29
+
+    # 非吸烟超优体 - 方案一 (cols 32-45)
+    - name: "基本保险金额对应费率表"
+      ensure_plan: "7"
+      label: "优选体-方案一"
+      plan_override: 0
+      column_start: 32
+      column_end: 45
+
+    # 非吸烟超优体 - 方案二 (cols 46-59)
+    - name: "基本保险金额对应费率表"
+      ensure_plan: "9"
+      label: "优选体-方案二"
+      plan_override: 0
+      column_start: 46
+      column_end: 59
+
+  layout:
+    header_rows:
+      plan: 6        # 第6行 = 保障方案(方案一/方案二)
+      period: 7      # 第7行 = 保险期间
+      pay_period: 8  # 第8行 = 交费期间
+      gender: 9      # 第9行 = 性别
+    data_start_row: 10    # 数据从第10行开始
+    data_end_row: 80      # 年龄0-70
+    age_column: 1
+    rate_columns_start: 2  # 默认起始列（会被 sheet 级 column_start 覆盖）
+    rate_columns_end: 59
+
+# ---- 代码映射 ----
+mappings:
+  gender:
+    "男": "1"
+    "女": "2"
+  ensure_period:
+    "终身": "TO105"
+  pay_mode:
+    single: "1"
+    annual: "5"
+  # 交费期间映射: 中文→数字
+  pay_period:
+    "趸交": "1"
+    "1年": "1"
+    "3年": "3"
+    "5年": "5"
+    "10年": "10"
+    "15年": "15"
+    "20年": "20"
+    "30年": "30"
+
+# ---- 计划与责任 ----
+# 简单产品：无附加责任组合，仅基础身故保障
+plans:
+  type: simple
+  duties: {}
+  plan_duties: {}
+
+# ---- 年龄限制 ----
+age_limits:
+  preferred:
+    min: 18
+    max: 65         # 优选体年龄限制
+  by_pay_period:
+    1:  { min: 0, max: 69 }
+    3:  { min: 0, max: 65 }
+    5:  { min: 0, max: 62 }
+    10: { min: 0, max: 62 }
+    15: { min: 0, max: 60 }
+    20: { min: 0, max: 59 }
+    30: { min: 0, max: 50 }
+
+# ---- 测试参数 ----
+test:
+  amount:
+    min: 1000000
+    max: 5000000
+    step: 1000
+    fixed: null
+  tolerance: 0.01
+  throttle:
+    interval: 5
+    sleep: 0.3
+
+# ---- 输出 ----
+output:
+  boundary_summary: "中英爱永恒A款分红边界值汇总.xlsx"
+  test_report: "API测试报告_{timestamp}.xlsx"

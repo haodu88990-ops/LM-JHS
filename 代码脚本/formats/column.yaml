@@ -1,0 +1,33 @@
+# ============================================================
+# 列式费率表格式 (column)
+# ============================================================
+# 最常见的费率表布局：每列是一个独立的(责任计划,保险期间,交费期间,性别)组合。
+#
+# 典型结构:
+#   Row 4: 责任计划  | 0 | 0 | 0 | 1 | 1 | ...
+#   Row 5: 保险期间  | 终身 | ...
+#   Row 6: 交费期间  | 1 | 1 | 3 | 3 | ...
+#   Row 7: 性别      | 男 | 女 | 男 | 女 | ...
+#   Row 8+: 年龄(Col1) + 费率数据
+
+format_name: "列式费率表"
+format_type: column
+
+layout:
+  header_rows:
+    plan: 4
+    period: 5
+    pay_period: 6
+    gender: 7
+  data_start_row: 8
+  age_column: 1
+  rate_columns_start: 2
+
+# 要读取的 Sheet（可在 CLI 覆盖或通过 --sections 追加）
+sections:
+  - sheet: "标准体费率表"
+    label: "标准体"
+    ensure_plan: "1"
+  - sheet: "优选体费率表"
+    label: "优选体"
+    ensure_plan: "2"

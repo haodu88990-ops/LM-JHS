@@ -1,0 +1,134 @@
+# ============================================================
+# 瑞泰鸿利致享版终身寿险 产品配置
+# ============================================================
+# 配置文件驱动整个测试流程，修改此文件即可适配不同产品。
+# 所有路径相对于本配置文件所在目录，也可使用绝对路径。
+
+product_name: "瑞泰鸿利传世（致享版）终身寿险"
+
+# ---- API 连接 ----
+api:
+  base_url: "https://kfzxtb.lmbaoxian.com:13080"
+  login_endpoint: "/broker/api/user/login.html"
+  age_rate_endpoint: "/broker/api/prospectus/saveCustomer.html"
+  plan_rate_endpoint: "/broker/api/prospectus/saveProductExt.html"
+  verify_ssl: false
+  timeout: 30
+
+# ---- 登录凭据 ----
+credentials:
+  account: "15856990088"
+  password_md5: "dc483e80a7a0bd9ef71d8cf973673924"
+
+# ---- 产品标识 ----
+product:
+  product_id: "991452"
+  company_id: "100080"
+  serial_no: "1491455820292947968"
+  proposal_id: "40472"
+
+# ---- 固定请求参数 ----
+defaults:
+  insurant_id: 85320
+  insurant_occ_level: 1
+  insurant_social_insurance: "1"
+  policy_holder_id: 85321
+  policy_holder_age: 30
+  policy_holder_sex: "1"
+  dividend_draw_type: "2"
+  request_type: "prospectus"
+
+# ---- 费率表 ----
+# 注意：瑞泰产品的费率表包含"标准体费率表"和"优选体费率表"两个 Sheet。
+# 如果费率表文件名不同，请修改下方的 file 字段。
+rate_table:
+  file: "费率表.xlsx"
+  sheets:
+    - name: "标准体费率表"
+      ensure_plan: "1"
+      label: "标准体"
+    - name: "优选体费率表"
+      ensure_plan: "2"
+      label: "优选体"
+  layout:
+    header_rows:
+      plan: 4        # 第4行 = 责任计划编号
+      period: 5      # 第5行 = 保险期间
+      pay_period: 6  # 第6行 = 交费期间
+      gender: 7      # 第7行 = 性别
+    data_start_row: 8     # 数据从第8行开始
+    data_end_row: null     # null = 自动检测
+    age_column: 1          # 年龄在第1列
+    rate_columns_start: 2  # 费率从第2列开始
+    rate_columns_end: null # null = 自动检测
+
+# ---- 代码映射 ----
+mappings:
+  gender:
+    "男": "1"
+    "女": "2"
+  ensure_period:
+    "终身": "TO105"
+  pay_mode:
+    single: "1"    # 趸交
+    annual: "5"    # 年交
+  pay_period: direct  # 交费期间直接传数字字符串
+
+# ---- 计划与责任 ----
+# 8个计划(0-7)，通过不同的附加责任组合区分
+plans:
+  type: duty_combination
+  duties:
+    "2":
+      name: "全残保险金"
+      order: 115218
+      default_value: "2"
+    "3":
+      name: "身故额外关爱保险金"
+      order: 115219
+      default_value: ["3"]
+    "4":
+      name: "意外身故额外保险金"
+      order: 115220
+      default_value: ["4"]
+  plan_duties:
+    0: []           # 仅身故保险金
+    1: ["2"]        # 身故 + 全残
+    2: ["3"]        # 身故 + 身故额外关爱
+    3: ["3", "2"]   # 身故 + 身故额外关爱 + 全残
+    4: ["4"]        # 身故 + 意外身故额外
+    5: ["4", "2"]   # 身故 + 意外身故额外 + 全残
+    6: ["4", "3"]   # 身故 + 意外身故额外 + 身故额外关爱
+    7: ["4", "3", "2"]  # 全部
+
+# ---- 年龄限制 ----
+# null 值表示从费率表动态获取
+age_limits:
+  preferred:
+    min: 18
+    max: 65         # 优选体仅限 18~65 岁
+  by_pay_period:
+    1:  { min: 0, max: 69 }
+    3:  { min: 0, max: 65 }
+    5:  { min: 0, max: 62 }
+    10: { min: 0, max: 62 }
+    15: { min: 0, max: 60 }
+    20: { min: 0, max: 59 }
+    30: { min: 0, max: 50 }
+
+# ---- 测试参数 ----
+test:
+  amount:
+    min: 1000000       # 随机保额下限 (100万)
+    max: 5000000       # 随机保额上限 (500万)
+    step: 1000         # 步长
+    fixed: null        # null = 随机; 设置具体值则固定保额
+  tolerance: 0.01      # 保费偏差容忍度 (1%)
+  throttle:
+    interval: 5        # 每 N 条休眠一次
+    sleep: 0.3         # 休眠秒数
+
+# ---- 输出 ----
+output:
+  boundary_summary: "瑞泰鸿利致享版边界值汇总.xlsx"
+  test_report: "API测试报告_{timestamp}.xlsx"

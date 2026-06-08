@@ -1,0 +1,106 @@
+# ============================================================
+# 瑞泰鸿福满满终身寿险（分红型）产品配置
+# ============================================================
+# 费率表格式：行式网格 (grid)
+#   Row 3: pay_period 值
+#   Row 4: M/F 性别
+#   Rows 5-70: age(Col2) + rates(Cols 3-12)
+# 特点：保费算保额 (2_保费算保额), fee_unit=1000
+# 交费期间: 1, 3, 5, 6, 10 (无优选体区分)
+
+product_name: "瑞泰鸿福满满终身寿险（分红型）"
+
+# ---- API 连接 ----
+api:
+  base_url: "https://kfzxtb.lmbaoxian.com:13080"
+  login_endpoint: "/broker/api/user/login.html"
+  age_rate_endpoint: "/broker/api/prospectus/saveCustomer.html"
+  plan_rate_endpoint: "/broker/api/prospectus/saveProductExt.html"
+  verify_ssl: false
+  timeout: 30
+
+# ---- 登录凭据 ----
+credentials:
+  account: "15856990088"
+  password_md5: "dc483e80a7a0bd9ef71d8cf973673924"
+
+# ---- 产品标识 ----
+product:
+  product_id: "991452"
+  company_id: "100080"
+  serial_no: "1491455820292947968"
+  proposal_id: "40472"
+
+# ---- 固定请求参数 ----
+defaults:
+  insurant_id: 85320
+  insurant_occ_level: 1
+  insurant_social_insurance: "1"
+  policy_holder_id: 85321
+  policy_holder_age: 30
+  policy_holder_sex: "1"
+  dividend_draw_type: "2"
+  request_type: "prospectus"
+
+# ---- 费率表 ----
+# 单 Sheet，行式网格布局
+rate_table:
+  file: "../HONGFUMM_瑞泰鸿福满满终身寿险（分红型）_费率表2W.xlsx"
+  sheets:
+    - name: "费率"
+      ensure_plan: "1"
+      label: "标准体"
+      plan_override: 0
+  layout:
+    layout_type: grid       # 行式网格布局
+    pay_period_row: 3       # 第3行 = 交费期间 (1,3,5,6,10)
+    gender_row: 4           # 第4行 = 性别 (M/F)
+    period_override: "终身"  # 全局保险期间
+    data_start_row: 5       # 数据从第5行开始
+    data_end_row: 70        # 最大行
+    age_column: 2           # 年龄在第2列
+    rate_columns_start: 3   # 费率从第3列开始
+    rate_columns_end: 12    # 到第12列
+
+# ---- 代码映射 ----
+mappings:
+  gender:
+    "男": "1"
+    "女": "2"
+    "M": "1"    # 英文 M→男
+    "F": "2"    # 英文 F→女
+  ensure_period:
+    "终身": "TO105"
+  pay_mode:
+    single: "1"
+    annual: "5"
+  pay_period: direct
+
+# ---- 计划与责任 ----
+# 分红型产品，无附加责任
+plans:
+  type: simple
+  duties: {}
+  plan_duties: {}
+
+# ---- 年龄限制 ----
+age_limits:
+  preferred: null
+  by_pay_period: {}
+
+# ---- 测试参数 ----
+test:
+  amount:
+    min: 1000000
+    max: 5000000
+    step: 1000
+    fixed: null
+  tolerance: 0.01
+  throttle:
+    interval: 5
+    sleep: 0.3
+
+# ---- 输出 ----
+output:
+  boundary_summary: "鸿福满满边界值汇总.xlsx"
+  test_report: "API测试报告_{timestamp}.xlsx"
