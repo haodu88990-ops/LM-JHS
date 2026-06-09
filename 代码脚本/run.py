@@ -26,11 +26,8 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.config import (
-    FormatProfile, ProductProfile, RateLayoutConfig, SheetSection
-)
-from src.rate_reader import RateTableReader
-from src.boundary import BoundarySummaryGenerator
+from src.config import ProductProfile
+from src.rate_parser import RateTableParser, write_boundary_xlsx
 from src.tester import BatchTester
 from src.reporter import ReportGenerator
 
@@ -85,87 +82,6 @@ DEFAULT_PRODUCT = {
 
 
 # ================================================================
-# 格式自动检测
-# ================================================================
-
-def detect_format(file_path: str) -> str:
-    """
-    自动检测费率表格式。
-
-    策略：
-    1. 检查是否有 '产品信息' + '费率' Sheet → grid
-    2. 检查 '费率' Sheet 的结构 → grid 或 column
-    3. 检查是否有 '标准体费率表' Sheet → column
-    """
-    from openpyxl import load_workbook
-    wb = load_workbook(file_path, data_only=True)
-    sheets = wb.sheetnames
-
-    # 有产品信息 Sheet → 很可能是标准格式
-    has_info = any(s in sheets for s in ["产品信息", "产品说明"])
-
-    # 检查费率 Sheet
-    rate_sheet = None
-    for s in sheets:
-        if "费率" in s and "产品" not in s:
-            rate_sheet = s
-            break
-    if not rate_sheet and len(sheets) > 0:
-        rate_sheet = sheets[-1]  # 最后一个 Sheet 通常是数据
-
-    if rate_sheet:
-        ws = wb[rate_sheet]
-        # Grid 特征: Row 3 有 PREMIUM / pay_period 字样
-        row3_first = str(ws.cell(row=3, column=1).value or "").strip().upper()
-        row3_second = str(ws.cell(row=3, column=2).value or "").strip()
-        if row3_first in ("PREMIUM", "保费") or "pay_period" in row3_second.lower():
-            wb.close()
-            return "grid"
-
-    # 如果有多 Sheet 且包含"费率表"字样 → column
-    for s in sheets:
-        if "费率表" in s:
-            wb.close()
-            return "column"
-
-    # 默认尝试 column
-    wb.close()
-    return "column"
-
-
-def build_format(file_path: str) -> FormatProfile:
-    """根据检测结果构建 FormatProfile"""
-    fmt_type = detect_format(file_path)
-    print(f"  识别格式: {fmt_type}")
-
-    if fmt_type == "grid":
-        return FormatProfile(
-            format_name="自动识别",
-            format_type="grid",
-            layout=RateLayoutConfig(
-                layout_type="grid",
-                pay_period_row=3, gender_row=4,
-                data_start_row=5, age_column=2, rate_columns_start=3,
-            ),
-            sections=[SheetSection(sheet="费率", label="标准体", ensure_plan="1", plan_override=0)],
-        )
-    else:
-        return FormatProfile(
-            format_name="自动识别",
-            format_type="column",
-            layout=RateLayoutConfig(
-                layout_type="column",
-                header_rows={"plan": 4, "period": 5, "pay_period": 6, "gender": 7},
-                data_start_row=8, age_column=1, rate_columns_start=2,
-            ),
-            sections=[SheetSection(sheet="标准体费率表", label="标准体", ensure_plan="1")],
-        )
-
-
-# ================================================================
-# 交互
-# ================================================================
-
 def prompt_serial_no() -> str:
     print()
     print("🔑 请输入模拟测算的 serialNo（方案序列号）：")
@@ -224,48 +140,24 @@ def main():
     print("=" * 60)
     print(f"  文件: {rate_file}")
 
-    fmt = build_format(rate_file)
 
-    # 先读元数据
-    reader = RateTableReader(fmt)
-    meta = reader.read_metadata(rate_file)
+    # 内容驱动解析
+    rp = RateTableParser()
+    parsed = rp.parse(rate_file)
+    rows = parsed["_rows"]
 
-    # 用元数据补全产品配置
     product_data = dict(DEFAULT_PRODUCT)
-    if meta.product_name:
-        product_data["product_name"] = meta.product_name
+    if parsed["product_name"] != "(未标注)":
+        product_data["product_name"] = parsed["product_name"]
     product = ProductProfile.from_dict(product_data)
 
-    # 用产品映射重新创建 reader
-    reader = RateTableReader(fmt, product)
-
-    print(meta.summary())
-
-    # 提取边界值
-    rows = reader.read_all_sections(rate_file)
-
-    # 分析条件
-    from collections import defaultdict
-    dims = defaultdict(set)
-    for r in rows:
-        dims["保障方案"].add(r.get("保障方案", ""))
-        dims["交费期间"].add(r.get("交费期间"))
-        dims["性别"].add(r.get("性别"))
-        dims["年龄范围"].add(f"{r.get('最小年龄')}~{r.get('最大年龄')}岁")
-
-    print(f"\n  测算条件:")
-    for k, v in dims.items():
-        print(f"    {k}: {sorted(v, key=str)}")
-
-    print(f"\n  边界值 ({len(rows)} 条):")
-    for r in rows:
-        print(f"    {r['保障方案']:8s} | 交{r['交费期间']:2d}年 | {r['性别']} | "
-              f"{r['最小年龄']:2d}岁({r['最小年龄费率']}‰) → {r['最大年龄']:2d}岁({r['最大年龄费率']}‰)")
-
-    case_count = sum(2 if r['最小年龄'] != r['最大年龄'] else 1 for r in rows)
-    print(f"\n  预计测试用例: {case_count} 条")
-
-    # ================================================================
+    pname = parsed['product_name']
+    dtype = parsed['data_type']
+    funit = parsed['fee_unit']
+    print(f"  产品: {pname}")
+    print(f"  格式: 自动检测")
+    print(f"  算费方向: {dtype}")
+    print(f"  费率单位: 每{funit}元")
     # Phase 2: 参数确认
     # ================================================================
     print()
@@ -309,8 +201,8 @@ def main():
     print("=" * 60)
 
     tmp_boundary = os.path.join(os.path.dirname(rate_file), "_boundary_tmp.xlsx")
-    gen = BoundarySummaryGenerator(fmt, product)
-    gen.generate(rate_file=rate_file, output_file=tmp_boundary)
+    write_boundary_xlsx(rows, tmp_boundary,
+                         product.product_name or parsed["product_name"])
 
     tester = BatchTester(product, serial_no=serial_no, proposal_id=proposal_id)
     results = tester.run(

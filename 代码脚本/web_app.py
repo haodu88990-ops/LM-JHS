@@ -6,7 +6,8 @@
     python web_app.py
     python web_app.py --port 8080
 
-然后浏览器打开 http://localhost:5000
+然后浏览器打开 http://localhost:5050
+（默认5050端口，避免与 macOS AirPlay 的5000端口冲突）
 """
 
 import sys
@@ -23,19 +24,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 
-from src.config import (
-    FormatProfile, ProductProfile, RateLayoutConfig, SheetSection
-)
-from src.rate_reader import RateTableReader, RateTableMetadata
-from src.boundary import BoundarySummaryGenerator
+from src.config import ProductProfile
+from src.rate_parser import RateTableParser, write_boundary_xlsx
 from src.tester import BatchTester
 from src.reporter import ReportGenerator
 
-app = Flask(__name__)
+# 确保无论从哪个目录启动都能找到模板
+BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+
+app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB
 
 # 上传文件暂存
-UPLOAD_DIR = Path(os.path.dirname(os.path.abspath(__file__))) / "_uploads"
+UPLOAD_DIR = BASE_DIR.parent / "_uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 
@@ -106,105 +107,19 @@ def pdf_to_excel(pdf_path: str) -> str:
 
 
 # ================================================================
-# 格式检测 + 解析
+# 解析（内容驱动，自动适配格式）
 # ================================================================
-
-def detect_format(file_path: str) -> str:
-    from openpyxl import load_workbook
-    wb = load_workbook(file_path, data_only=True)
-    sheets = wb.sheetnames
-
-    has_info = any(s in sheets for s in ["产品信息", "产品说明"])
-    rate_sheet = None
-    for s in sheets:
-        if "费率" in s and "产品" not in s:
-            rate_sheet = s
-            break
-    if not rate_sheet and sheets:
-        rate_sheet = sheets[-1]
-
-    if rate_sheet:
-        ws = wb[rate_sheet]
-        row3_first = str(ws.cell(row=3, column=1).value or "").strip().upper()
-        row3_second = str(ws.cell(row=3, column=2).value or "").strip()
-        if row3_first in ("PREMIUM", "保费") or "pay_period" in row3_second.lower():
-            wb.close()
-            return "grid"
-
-    for s in sheets:
-        if "费率表" in s:
-            wb.close()
-            return "column"
-
-    wb.close()
-    return "column"
 
 
 def parse_rate_table(file_path: str) -> dict:
-    """完整解析费率表，返回前端展示所需数据"""
-    fmt_type = detect_format(file_path)
+    """解析费率表，自动检测布局并提取边界值。"""
+    parser = RateTableParser()
+    return parser.parse(file_path)
 
-    if fmt_type == "grid":
-        fmt = FormatProfile(
-            format_name="auto", format_type="grid",
-            layout=RateLayoutConfig(
-                layout_type="grid",
-                pay_period_row=3, gender_row=4,
-                data_start_row=5, age_column=2, rate_columns_start=3,
-            ),
-            sections=[SheetSection(sheet="费率", label="标准体", ensure_plan="1", plan_override=0)],
-        )
-    else:
-        fmt = FormatProfile(
-            format_name="auto", format_type="column",
-            layout=RateLayoutConfig(
-                layout_type="column",
-                header_rows={"plan": 4, "period": 5, "pay_period": 6, "gender": 7},
-                data_start_row=8, age_column=1, rate_columns_start=2,
-            ),
-            sections=[SheetSection(sheet="标准体费率表", label="标准体", ensure_plan="1")],
-        )
 
-    reader = RateTableReader(fmt)
-    meta = reader.read_metadata(file_path)
-    product = ProductProfile.from_dict(DEFAULT_PRODUCT)
-    if meta.product_name:
-        product.product_name = meta.product_name
-    reader = RateTableReader(fmt, product)
-    rows = reader.read_all_sections(file_path)
 
-    # 条件维度
-    dims = {}
-    for r in rows:
-        for k in ["保障方案", "交费期间", "性别", "责任计划"]:
-            dims.setdefault(k, set()).add(r.get(k, ""))
 
-    # 边界值
-    boundaries = []
-    for r in rows:
-        boundaries.append({
-            "label": r["保障方案"],
-            "pay": r["交费期间"],
-            "gender": r["性别"],
-            "min_age": r["最小年龄"],
-            "min_rate": r["最小年龄费率"],
-            "max_age": r["最大年龄"],
-            "max_rate": r["最大年龄费率"],
-        })
 
-    case_count = sum(2 if b["min_age"] != b["max_age"] else 1 for b in boundaries)
-
-    return {
-        "format": fmt_type,
-        "product_name": meta.product_name or "(未标注)",
-        "data_type": meta.data_type_label,
-        "fee_unit": meta.fee_unit,
-        "fee_rule": meta.fee_rule,
-        "dims": {k: sorted(v, key=str) for k, v in dims.items()},
-        "boundaries": boundaries,
-        "case_count": case_count,
-        "boundary_count": len(boundaries),
-    }
 
 
 # ================================================================
@@ -214,6 +129,11 @@ def parse_rate_table(file_path: str) -> dict:
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/health")
+def health():
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -261,37 +181,16 @@ def run_test():
     try:
         # ---- 解析 ----
         parsed = parse_rate_table(file_path)
-        fmt_type = parsed["format"]
-
-        if fmt_type == "grid":
-            fmt = FormatProfile(
-                format_name="auto", format_type="grid",
-                layout=RateLayoutConfig(
-                    layout_type="grid",
-                    pay_period_row=3, gender_row=4,
-                    data_start_row=5, age_column=2, rate_columns_start=3,
-                ),
-                sections=[SheetSection(sheet="费率", label="标准体", ensure_plan="1", plan_override=0)],
-            )
-        else:
-            fmt = FormatProfile(
-                format_name="auto", format_type="column",
-                layout=RateLayoutConfig(
-                    layout_type="column",
-                    header_rows={"plan": 4, "period": 5, "pay_period": 6, "gender": 7},
-                    data_start_row=8, age_column=1, rate_columns_start=2,
-                ),
-                sections=[SheetSection(sheet="标准体费率表", label="标准体", ensure_plan="1")],
-            )
 
         product = ProductProfile.from_dict(DEFAULT_PRODUCT)
         if parsed["product_name"] != "(未标注)":
             product.product_name = parsed["product_name"]
 
-        # ---- 生成边界值 ----
         tmp_boundary = os.path.join(UPLOAD_DIR, "_boundary_tmp.xlsx")
-        gen = BoundarySummaryGenerator(fmt, product)
-        gen.generate(rate_file=file_path, output_file=tmp_boundary)
+
+        # ---- 生成边界值 ----
+        write_boundary_xlsx(parsed.get("_rows", []), tmp_boundary,
+                             product.product_name or parsed["product_name"])
 
         # ---- 执行测试 ----
         tester = BatchTester(product, serial_no=serial_no, proposal_id="")
@@ -344,19 +243,44 @@ def run_test():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--port", type=int, default=5050)
+    parser.add_argument("--test", action="store_true", help="仅自检，不启动服务")
     args = parser.parse_args()
+
+    if args.test:
+        print("🔍 自检中...")
+        print(f"   BASE_DIR: {BASE_DIR}")
+        print(f"   templates: {BASE_DIR / 'templates'}")
+        print(f"   index.html: {'✅' if (BASE_DIR / 'templates' / 'index.html').exists() else '❌ 缺失'}")
+        print(f"   uploads dir: {'✅' if UPLOAD_DIR.exists() else '📁 创建中...'}")
+        UPLOAD_DIR.mkdir(exist_ok=True)
+        with app.test_client() as c:
+            r = c.get('/')
+            print(f"   GET /: {r.status_code}")
+            r = c.get('/api/health')
+            print(f"   GET /api/health: {r.status_code} {r.get_json()}")
+        print("✅ 自检通过，可以启动: python web_app.py")
+        import sys; sys.exit(0)
 
     print(f"""
 ╔══════════════════════════════════════════════╗
 ║       保费测算工具 - Web 界面                  ║
 ║                                              ║
-║   打开浏览器访问: http://localhost:{args.port}     ║
+║   浏览器打开: http://localhost:{args.port}           ║
 ║                                              ║
 ║   1. 上传 PDF / Excel 费率表                  ║
 ║   2. 输入 serialNo                           ║
 ║   3. 点击「开始测算」                          ║
 ║   4. 下载 Excel 报告                          ║
+║                                              ║
+║   按 Ctrl+C 退出                              ║
 ╚══════════════════════════════════════════════╝
 """)
-    app.run(host="0.0.0.0", port=args.port, debug=True)
+    try:
+        app.run(host="0.0.0.0", port=args.port, debug=False)
+    except OSError as e:
+        if "Address already in use" in str(e):
+            print(f"❌ 端口 {args.port} 已被占用，换一个:")
+            print(f"   python web_app.py --port {args.port + 1}")
+        else:
+            raise

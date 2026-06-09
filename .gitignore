@@ -3,3 +3,6 @@
 
 # Claude
 .claude/
+
+# Uploaded rate table files
+_uploads/

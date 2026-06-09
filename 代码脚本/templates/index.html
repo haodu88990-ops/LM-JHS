@@ -211,6 +211,28 @@ const RESULT_AREA = document.getElementById('result-area');
 let currentFile = null;
 let parsedData = null;
 
+// ---- 启动检查 ----
+(async function checkHealth() {
+  try {
+    const resp = await fetch('/api/health');
+    if (resp.ok) {
+      console.log('✅ 服务连接正常');
+    }
+  } catch(e) {
+    document.body.innerHTML = `
+      <div style="max-width:500px;margin:60px auto;text-align:center">
+        <h2 style="color:#c00">⚠ 无法连接服务</h2>
+        <p style="color:#666;margin:16px 0">
+          请确认已启动服务: <code>python web_app.py</code>
+        </p>
+        <p style="color:#999;font-size:13px">
+          当前访问地址: <code>${location.href}</code><br>
+          预期服务地址: <code>http://localhost:5050</code>
+        </p>
+      </div>`;
+  }
+})();
+
 // ---- 上传 ----
 UPLOAD_ZONE.addEventListener('click', () => FILE_INPUT.click());
 UPLOAD_ZONE.addEventListener('dragover', e => { e.preventDefault(); UPLOAD_ZONE.classList.add('dragover'); });
