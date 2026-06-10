@@ -263,13 +263,35 @@ class InsuranceAPIClient:
             elif code == 500:
                 failure_reason = result.get("message", "服务器内部错误")
             else:
-                # code==200 但 fee 为空也算通过（测试中标记为 PASS(无fee字段)）
-                if code == 200:
-                    success = True
-                failure_reason = result.get("message")
+                # code==200 但 fee 为空/为0 → 检查 failureReason
+                if isinstance(result.get("info"), dict):
+                    fr = result["info"].get("failureReason")
+                    if fr:
+                        failure_reason = fr
+                if not failure_reason:
+                    failure_reason = result.get("message")
+                # fee=0 且无 failureReason/message 说明 API 实际计算失败,
+                # 不设置 success=True, 由上层判定为 FAIL
 
         except (ValueError, AttributeError):
             pass
+
+        # DEBUG: 失败时写入日志文件
+        if not success:
+            import os as _os, json as _json
+            _log_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "_uploads")
+            _os.makedirs(_log_dir, exist_ok=True)
+            _log_path = _os.path.join(_log_dir, "_debug_failure.json")
+            _entry = {
+                "failure_reason": failure_reason,
+                "http_status": resp.status_code,
+                "request_payload": {k: v for k, v in payload.items()},
+                "response_body": str(resp.text)[:3000],
+            }
+            with open(_log_path, "w", encoding="utf-8") as _f:
+                _json.dump(_entry, _f, ensure_ascii=False, indent=2)
+            import sys
+            print(f"[DEBUG] Failure logged to: {_log_path}", file=sys.stderr, flush=True)
 
         return success, fee, resp.status_code, resp.text, failure_reason
 

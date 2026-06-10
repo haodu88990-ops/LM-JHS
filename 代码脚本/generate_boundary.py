@@ -13,7 +13,6 @@
     --rate-file, -r  费率表 Excel 路径
     --output, -o     输出 Excel 路径
     --product, -p    可选：关联产品配置（用于标题、脚注）
-    --grouped, -g    使用分组模式读取
 
 示例:
     python generate_boundary.py -f formats/column.yaml -r 费率表.xlsx
@@ -56,7 +55,6 @@ def main():
     parser.add_argument("--rate-file", "-r", required=True, help="费率表 Excel 路径")
     parser.add_argument("--output", "-o", help="输出 Excel 路径")
     parser.add_argument("--product", "-p", help="产品配置（可选，用于标题和脚注）")
-    parser.add_argument("--grouped", "-g", action="store_true", help="分组模式读取")
     parser.add_argument("--explore", "-e", action="store_true", help="仅探索费率表结构")
     args = parser.parse_args()
 
@@ -96,7 +94,7 @@ def main():
     # 生成
     output_file = args.output or "边界值汇总.xlsx"
     generator = BoundarySummaryGenerator(fmt, product)
-    out = generator.generate(rate_file=rate_file, output_file=output_file, use_grouped=args.grouped)
+    out = generator.generate(rate_file=rate_file, output_file=output_file)
     print(f"\n✅ 输出: {out}")
 
 

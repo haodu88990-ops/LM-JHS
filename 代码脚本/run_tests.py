@@ -79,6 +79,7 @@ def main():
     parser.add_argument("--output", "-o", help="报告输出路径")
     parser.add_argument("--smoke", action="store_true", help="冒烟测试（仅前5条）")
     parser.add_argument("--smoke-count", type=int, default=5, help="冒烟测试用例数")
+    parser.add_argument("--yes", "-y", action="store_true", help="跳过交互确认（适用于 CI 场景）")
     args = parser.parse_args()
 
     # ---- 校验文件 ----
@@ -141,7 +142,7 @@ def main():
     print(f"  测试用例数: {len(rows) * 2} 条（每条边界值生成最小/最大年龄两个用例）")
 
     # 确认
-    if not args.serial_no:
+    if not args.serial_no and not args.yes:
         print()
         confirm = input("  确认开始测算? [Y/n]: ").strip().lower()
         if confirm and confirm != "y":

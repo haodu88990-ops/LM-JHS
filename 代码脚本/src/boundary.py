@@ -61,14 +61,10 @@ class BoundarySummaryGenerator:
     # 主入口
     # ================================================================
 
-    def generate(self, rate_file: str, output_file: str, use_grouped: bool = False) -> str:
+    def generate(self, rate_file: str, output_file: str) -> str:
         print(f"📂 读取费率表: {rate_file}")
         reader = RateTableReader(self.format, self.product)
-
-        if use_grouped:
-            rows = reader.read_grouped(rate_file)
-        else:
-            rows = reader.read_all_sections(rate_file)
+        rows = reader.read_all_sections(rate_file)
 
         if not rows:
             print("⚠ 未提取到任何数据")

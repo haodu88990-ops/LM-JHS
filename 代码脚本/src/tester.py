@@ -5,8 +5,10 @@
 支持自动节流、进度显示、错误恢复。
 """
 
+import re
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
@@ -79,7 +81,7 @@ class TestCaseLoader:
             if min_age is not None and min_rate is not None:
                 cases.append({
                     "保障方案": plan_name,
-                    "ensurePlan": str(ensure_plan) if ensure_plan is not None else "1",
+                    "ensurePlan": self._sanitize_ensure_plan(ensure_plan),
                     "责任计划": plan,
                     "保险期间": period,
                     "交费期间": pay_period,
@@ -94,7 +96,7 @@ class TestCaseLoader:
                     and max_age != min_age):
                 cases.append({
                     "保障方案": plan_name,
-                    "ensurePlan": str(ensure_plan) if ensure_plan is not None else "1",
+                    "ensurePlan": self._sanitize_ensure_plan(ensure_plan),
                     "责任计划": plan,
                     "保险期间": period,
                     "交费期间": pay_period,
@@ -113,6 +115,16 @@ class TestCaseLoader:
         return str(v).strip() if v is not None else None
 
     @staticmethod
+    def _sanitize_ensure_plan(raw) -> str:
+        """防御性规范化 ensurePlan：只允许 "1" 或 "2"，其余一律回退为 "1"。"""
+        if raw is None:
+            return "1"
+        s = str(raw).strip()
+        if s in ("1", "2"):
+            return s
+        return "1"
+
+    @staticmethod
     def _int(ws, row, col):
         v = ws.cell(row=row, column=col).value
         if v is None:
@@ -128,7 +140,7 @@ class TestCaseLoader:
         if v is None:
             return None
         try:
-            return float(v)
+            return round(float(v), 10)
         except (ValueError, TypeError):
             return None
 
@@ -203,33 +215,61 @@ class BatchTester:
             print("   3. VPN 是否已连接")
             return []
         if not ok:
-            print("⚠ 登录可能失败，继续执行测试...")
+            print("❌ 登录失败，请检查账号密码配置")
+            print(f"   API 地址: {self.profile.api.base_url}")
+            return []
 
-        # 执行测试
-        print(f"🧪 开始执行 {len(cases)} 条用例...\n")
-        results = []
+        # 执行测试（并行）
+        workers = self.profile.test.throttle.workers
+        print(f"🧪 开始并行执行 {len(cases)} 条用例 ({workers} 线程)...\n")
+        results = [None] * len(cases)
         start_time = time.time()
+        completed = 0
 
-        for i, case in enumerate(cases):
-            case_no = i + 1
-            result = self._run_single(case, case_no)
-            results.append(result)
+        login_cookies = self.client.login_cookies
 
-            # 输出单条结果
-            verdict = result.get("测试结论", "?")
-            emoji = "✅" if verdict.startswith("PASS") else "❌" if verdict.startswith("FAIL") else "⚠️"
-            print(f"  [{case_no:03d}/{len(cases)}] {emoji} {verdict} | "
-                  f"计划{case['责任计划']} {case['性别']} {case['年龄']}岁 "
-                  f"| 期望{case['期望费率']}‰")
+        def worker(case, case_no):
+            """每个线程独立创建 client，共享 login_cookies"""
+            worker_client = InsuranceAPIClient(
+                self.profile,
+                serial_no=self.serial_no,
+                proposal_id=self.proposal_id,
+            )
+            worker_client.login_cookies = login_cookies
+            return self._run_single(case, case_no, client=worker_client)
 
-            # 节流
-            throttle = self.profile.test.throttle
-            if throttle.interval > 0 and case_no % throttle.interval == 0:
-                time.sleep(throttle.sleep)
+        throttle = self.profile.test.throttle
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_idx = {
+                executor.submit(worker, case, i + 1): i
+                for i, case in enumerate(cases)
+            }
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    result = future.result()
+                except Exception as e:
+                    result = {
+                        "序号": idx + 1,
+                        "测试结论": f"ERROR - 线程异常: {e}",
+                        "备注": str(e),
+                    }
+                results[idx] = result
+                completed += 1
 
-            # 进度回调
-            if progress_callback:
-                progress_callback(case_no, len(cases))
+                # 输出单条结果
+                verdict = result.get("测试结论", "?")
+                emoji = "✅" if verdict.startswith("PASS") else "❌" if verdict.startswith("FAIL") else "⚠️"
+                print(f"  [{completed}/{len(cases)}] {emoji} {verdict} | "
+                      f"计划{result.get('责任计划','?')} {result.get('性别','?')} "
+                      f"{result.get('年龄','?')}岁 | 期望{result.get('期望费率(‰)','?')}‰")
+
+                # 进度回调（第三个参数传递当前结果，用于前端实时展示）
+                if progress_callback:
+                    progress_callback(completed, len(cases), result)
+
+        # 过滤掉 None（理论上不应出现）
+        results = [r for r in results if r is not None]
 
         elapsed = time.time() - start_time
 
@@ -249,17 +289,119 @@ class BatchTester:
         return results
 
     # ================================================================
+    # 金额限制解析（智能调整）
+    # ================================================================
+
+    # 金额限制相关关键词
+    _AMOUNT_LIMIT_KEYWORDS = [
+        "最低", "最高", "调整", "步长", "单位", "万元", "保额",
+        "不低于", "不超过", "整数倍", "倍数",
+    ]
+
+    # 金额提取正则（按优先级排列）
+    _AMOUNT_PATTERNS = [
+        # "100万元" / "100万"
+        (re.compile(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*万\s*元?'), 10000),
+        # "1,000,000元" / "1000000元"
+        (re.compile(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*元'), 1),
+        # "1000的整数倍" / "1000的倍数"
+        (re.compile(r'(\d+(?:,\d{3})*)\s*的\s*(?:整数倍|倍数)'), 1),
+        # 纯数字（≥4位，可能是金额）
+        (re.compile(r'(\d{4,})'), 1),
+    ]
+
+    @classmethod
+    def _is_amount_limit_reason(cls, reason: str) -> bool:
+        """判断 failureReason 是否与金额限制相关（需要调整重试）。"""
+        if not reason:
+            return False
+        return any(kw in reason for kw in cls._AMOUNT_LIMIT_KEYWORDS)
+
+    @classmethod
+    def _parse_amount_limit(cls, reason: str) -> Optional[dict]:
+        """
+        从 failureReason 文本中解析金额限制。
+
+        Returns:
+            {"type": "min"|"max"|"step", "value": int} 或 None（无法解析）
+        """
+        if not reason:
+            return None
+
+        # 判断限制类型（step 优先：\"最低调整单位\"整体是 step 而非 min）
+        if any(w in reason for w in ("步长", "调整单位", "整数倍", "倍数")):
+            limit_type = "step"
+        elif any(w in reason for w in ("最低", "不低于")):
+            limit_type = "min"
+        elif any(w in reason for w in ("最高", "不超过")):
+            limit_type = "max"
+        else:
+            limit_type = "min"  # 默认当作最低限制
+
+        # 提取金额数值
+        for pattern, multiplier in cls._AMOUNT_PATTERNS:
+            m = pattern.search(reason)
+            if m:
+                num_str = m.group(1).replace(",", "")
+                try:
+                    value = int(float(num_str) * multiplier)
+                    return {"type": limit_type, "value": value}
+                except (ValueError, TypeError):
+                    continue
+
+        return None
+
+    def _adjust_amount(self, current: int, limit: dict,
+                       amount_cfg) -> int:
+        """
+        根据解析出的金额限制调整保额。
+
+        Args:
+            current: 当前保额
+            limit: {"type": "min"|"max"|"step", "value": int}
+            amount_cfg: AmountConfig 配置
+
+        Returns:
+            调整后的保额
+        """
+        limit_type = limit["type"]
+        limit_value = limit["value"]
+        new_amount = current
+
+        if limit_type == "min":
+            # 不低于限制值，留一点余量（+1个step）
+            new_amount = max(current, limit_value + amount_cfg.step)
+            # 确保不超过 max
+            new_amount = min(new_amount, amount_cfg.max)
+
+        elif limit_type == "max":
+            # 不超过限制值，留一点余量（-1个step）
+            new_amount = min(current, limit_value - amount_cfg.step)
+            # 确保不低于 min
+            new_amount = max(new_amount, amount_cfg.min)
+
+        elif limit_type == "step":
+            # 调整为 step 的整数倍
+            step = max(limit_value, amount_cfg.step)
+            new_amount = ((current + step // 2) // step) * step
+            new_amount = max(new_amount, amount_cfg.min)
+            new_amount = min(new_amount, amount_cfg.max)
+
+        return new_amount
+
+    # ================================================================
     # 单用例执行
     # ================================================================
 
-    def _run_single(self, case: dict, case_no: int) -> dict:
+    def _run_single(self, case: dict, case_no: int, client: InsuranceAPIClient = None) -> dict:
         """
         执行单个测试用例。
 
         流程:
         1. 调用 age_rate(saveCustomer)
         2. 调用 plan_rate(saveProductExt)
-        3. 比较计算保费与期望保费（允许 tolerance 误差）
+        3. 若触发金额限制（最低/最高/调整单位），智能调整保额并重试（最多10次）
+        4. 比较计算保费与期望保费（允许 tolerance 误差）
         """
         plan = case["责任计划"]
         period = case["保险期间"]
@@ -308,9 +450,11 @@ class BatchTester:
             "备注": "",
         }
 
+        api = client or self.client
+
         try:
             # Step 1: age_rate
-            ok, cookies, status, text = self.client.save_customer(age, gender)
+            ok, cookies, status, text = api.save_customer(age, gender)
             result["age_rate状态码"] = status
             result["age_rate结果"] = "成功" if ok else "失败"
 
@@ -318,37 +462,104 @@ class BatchTester:
                 result["测试结论"] = "FAIL - age_rate接口失败"
                 return result
 
-            # Step 2: plan_rate
-            ok, fee, status, text, reason = self.client.save_product(
-                plan=plan,
-                ensure_period=period,
-                pay_period=pay_period,
-                amount=amount,
-                ensure_plan=ensure_plan,
-                cookies=cookies,
-            )
-            result["plan_rate状态码"] = status
-            result["API返回fee"] = fee
-            result["failureReason"] = reason
+            # Step 2: plan_rate（带金额限制智能重试）
+            MAX_RETRIES = 10
+            retry_log = []
+            final_fee = None
+            final_status = None
+            final_reason = None
+            final_ok = False
 
-            if ok:
+            for attempt in range(1 + MAX_RETRIES):  # 1 次初始 + 10 次重试
+                ok, fee, status, text, reason = api.save_product(
+                    plan=plan,
+                    ensure_period=period,
+                    pay_period=pay_period,
+                    amount=amount,
+                    ensure_plan=ensure_plan,
+                    cookies=cookies,
+                )
+
+                if ok:
+                    # 成功，退出重试循环
+                    final_ok = True
+                    final_fee = fee
+                    final_status = status
+                    final_reason = reason
+                    break
+
+                # 失败 → 判断是否需要调整金额重试
+                if attempt >= MAX_RETRIES:
+                    # 已达最大重试次数
+                    final_fee = fee
+                    final_status = status
+                    final_reason = reason
+                    break
+
+                if reason and self._is_amount_limit_reason(reason):
+                    limit = self._parse_amount_limit(reason)
+                    old_amount = amount
+
+                    if limit:
+                        amount = self._adjust_amount(old_amount, limit, amount_cfg)
+                        retry_log.append(
+                            f"第{attempt+1}次: {reason} → "
+                            f"保额 {old_amount:,} → {amount:,}"
+                            f"(解析: {limit['type']}={limit['value']:,})"
+                        )
+                    else:
+                        # 关键词匹配但无法解析数值 → 随机换一个金额
+                        amount = random.randrange(
+                            amount_cfg.min, amount_cfg.max + 1, amount_cfg.step
+                        )
+                        retry_log.append(
+                            f"第{attempt+1}次: {reason} → "
+                            f"保额 {old_amount:,} → {amount:,} (随机调整)"
+                        )
+                else:
+                    # 非金额限制原因（真正的算费失败），不重试
+                    final_fee = fee
+                    final_status = status
+                    final_reason = reason
+                    break
+
+            # 更新结果
+            result["保额(元)"] = amount
+            result["API返回fee"] = final_fee
+            result["plan_rate状态码"] = final_status
+            result["failureReason"] = final_reason
+            if retry_log:
+                result["备注"] = " | ".join(retry_log)
+
+            if final_ok:
                 result["plan_rate结果"] = "成功"
-                # 比较保费
-                actual_fee = float(fee)
-                deviation = abs(actual_fee - expected_premium) / expected_premium if expected_premium > 0 else float("inf")
+                # 用最终保额重新算期望保费
+                final_expected = amount * expected_rate / 1000
+                result["期望保费(元)"] = round(final_expected, 2)
+                actual_fee = float(final_fee)
+                deviation = (abs(actual_fee - final_expected) / final_expected
+                           if final_expected > 0 else float("inf"))
 
                 if deviation < self.profile.test.tolerance:
                     result["测试结论"] = "PASS"
                 else:
                     pct = deviation * 100
                     result["测试结论"] = f"PASS(费率偏差{pct:.1f}%)"
-                    result["备注"] = f"期望{expected_premium:.2f}, 实际{actual_fee:.2f}, 偏差{pct:.2f}%"
+                    if not retry_log:
+                        result["备注"] = (
+                            f"期望{final_expected:.2f}, 实际{actual_fee:.2f}, "
+                            f"偏差{pct:.2f}%"
+                        )
             else:
-                result["plan_rate结果"] = "失败" if status == 500 else "异常"
-                if fee is not None and float(fee) == 0 and reason:
-                    result["测试结论"] = "FAIL - 计算保费失败"
-                elif fee is not None:
-                    result["测试结论"] = "PASS(无fee字段)"
+                result["plan_rate结果"] = "失败" if final_status == 500 else "异常"
+                if final_reason:
+                    result["测试结论"] = f"FAIL - {final_reason}"
+                    if retry_log:
+                        result["测试结论"] += " (金额调整10次仍失败)"
+                elif final_fee is not None and float(final_fee) == 0:
+                    result["测试结论"] = "FAIL - 计算保费失败(保费为0)"
+                elif final_fee is not None:
+                    result["测试结论"] = "FAIL - API返回异常(fee字段异常)"
                 else:
                     result["测试结论"] = "FAIL - plan_rate接口失败"
 

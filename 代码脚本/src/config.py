@@ -183,10 +183,25 @@ class AgeLimitsConfig:
 
 
 @dataclass
+class AmountConfig:
+    fixed: Optional[int] = None
+    min: int = 1000000
+    max: int = 5000000
+    step: int = 1000
+
+
+@dataclass
+class ThrottleConfig:
+    interval: int = 5
+    sleep: float = 0.3
+    workers: int = 10
+
+
+@dataclass
 class TestConfig:
-    amount: dict = field(default_factory=lambda: {"min": 1000000, "max": 5000000, "step": 1000})
+    amount: AmountConfig = field(default_factory=AmountConfig)
     tolerance: float = 0.01
-    throttle: dict = field(default_factory=lambda: {"interval": 5, "sleep": 0.3})
+    throttle: ThrottleConfig = field(default_factory=ThrottleConfig)
 
 
 @dataclass
@@ -215,7 +230,16 @@ class ProductProfile:
         self.mappings = MappingsConfig(**data.get("mappings", {}))
         self.plans = PlansConfig(**data.get("plans", {}))
         self.age_limits = AgeLimitsConfig(**data.get("age_limits", {}))
-        self.test = TestConfig(**data.get("test", {}))
+        test_raw = data.get("test", {})
+        amount_raw = test_raw.get("amount", {})
+        amount = AmountConfig(**amount_raw) if isinstance(amount_raw, dict) else amount_raw
+        throttle_raw = test_raw.get("throttle", {})
+        throttle = ThrottleConfig(**throttle_raw) if isinstance(throttle_raw, dict) else throttle_raw
+        self.test = TestConfig(
+            amount=amount,
+            tolerance=test_raw.get("tolerance", 0.01),
+            throttle=throttle,
+        )
         self.output = OutputConfig(**data.get("output", {}))
 
     @classmethod
@@ -250,7 +274,28 @@ class ProductProfile:
         return self.mappings.gender.get(label, label)
 
     def get_ensure_period_code(self, label: str) -> str:
-        return self.mappings.ensure_period.get(label, label)
+        """保险期间文本 → API 编码。先查映射表，再智能提取。
+
+        - 岁满型「至...年满60周岁...」→ TO60
+        - 年满型「30年」→ 30
+        - 终身「终身」→ TO105（需映射表配置）
+        """
+        # 1) 直接映射
+        mapped = self.mappings.ensure_period.get(label)
+        if mapped:
+            return mapped
+
+        # 2) 岁满型：提取年龄数字 → TO{age}
+        m = re.search(r'年满(\d+)\s*周?岁', label)
+        if m:
+            return f"TO{m.group(1)}"
+
+        # 3) 年满型：纯数字+年 → 数字
+        m = re.match(r'^(\d+)\s*年?$', label.strip())
+        if m:
+            return m.group(1)
+
+        return label
 
     def get_pay_period_code(self, pay_period) -> str:
         mp = self.mappings.pay_period

@@ -45,8 +45,8 @@ plans:
   type: duty_combination
   duties:
     "2": { name: "全残保险金", order: 115218, default_value: "2" }
-    "3": { name: "身故额外关爱保险金", order: 115219, default_value: ["3"] }
-    "4": { name: "意外身故额外保险金", order: 115220, default_value: ["4"] }
+    "3": { name: "身故额外关爱保险金", order: 115219, default_value: "3" }
+    "4": { name: "意外身故额外保险金", order: 115220, default_value: "4" }
   plan_duties:
     0: []
     1: ["2"]

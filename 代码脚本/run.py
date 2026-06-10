@@ -151,6 +151,8 @@ def main():
         product_data["product_name"] = parsed["product_name"]
     product = ProductProfile.from_dict(product_data)
 
+    case_count = parsed["case_count"]
+
     pname = parsed['product_name']
     dtype = parsed['data_type']
     funit = parsed['fee_unit']
@@ -158,6 +160,7 @@ def main():
     print(f"  格式: 自动检测")
     print(f"  算费方向: {dtype}")
     print(f"  费率单位: 每{funit}元")
+    print(f"  用例数:  {case_count}")
     # Phase 2: 参数确认
     # ================================================================
     print()
@@ -168,13 +171,10 @@ def main():
     serial_no = args.serial_no or prompt_serial_no()
     proposal_id = args.proposal_id
 
-    # 登录账号：命令行传了就直接用，否则交互问
+    # 登录账号：命令行传了就直接用，没传且是交互模式才询问
     account = args.account or DEFAULT_PRODUCT["credentials"]["account"]
     password = DEFAULT_PRODUCT["credentials"]["password_md5"]
-    if args.serial_no:
-        # 命令行模式：不交互，直接用默认
-        pass
-    else:
+    if not args.serial_no and not args.account:
         account, password = prompt_account()
 
     product.credentials.account = account
@@ -183,7 +183,6 @@ def main():
     print(f"\n  ✅ serialNo: {serial_no}")
     print(f"  ✅ API:     {product.api.base_url}")
     print(f"  ✅ 产品:    {product.product_name or '(费率表未标注)'}")
-    print(f"  ✅ 用例数:  {case_count}")
 
     if not args.serial_no:
         print()

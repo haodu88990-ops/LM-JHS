@@ -86,11 +86,11 @@ plans:
     "3":
       name: "身故额外关爱保险金"
       order: 115219
-      default_value: ["3"]
+      default_value: "3"
     "4":
       name: "意外身故额外保险金"
       order: 115220
-      default_value: ["4"]
+      default_value: "4"
   plan_duties:
     0: []           # 仅身故保险金
     1: ["2"]        # 身故 + 全残
