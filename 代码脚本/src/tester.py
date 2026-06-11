@@ -400,8 +400,12 @@ class BatchTester:
         流程:
         1. 调用 age_rate(saveCustomer)
         2. 调用 plan_rate(saveProductExt)
-        3. 若触发金额限制（最低/最高/调整单位），智能调整保额并重试（最多10次）
-        4. 比较计算保费与期望保费（允许 tolerance 误差）
+        3. 若触发金额限制（最低/最高/调整单位），智能调整输入值并重试（最多10次）
+        4. 比较 API 返回值与期望值（允许 tolerance 误差）
+
+        根据 product.data_type 自动切换算费方向:
+          type="1"（保额算保费）: 输入=保额, 期望输出=保费, API返回=fee
+          type="2"（保费算保额）: 输入=保费, 期望输出=保额, API返回=amount
         """
         plan = case["责任计划"]
         period = case["保险期间"]
@@ -412,18 +416,39 @@ class BatchTester:
         ensure_plan = case.get("ensurePlan", "1")
         expected_rate = case["期望费率"]
 
-        # 生成随机保额
-        amount_cfg = self.profile.test.amount
-        if amount_cfg.fixed:
-            amount = amount_cfg.fixed
+        # ---- 算费方向和费率单位 ----
+        data_type = self.profile.data_type  # "1"=保额算保费, "2"=保费算保额
+        fee_unit = self.profile.fee_unit or 1000
+        is_type2 = (data_type == "2")
+        input_type = "premium" if is_type2 else "amount"
+
+        # ---- 生成随机输入值（保额或保费，取决于算费方向） ----
+        if is_type2:
+            input_cfg = self.profile.test.premium   # 保费配置：min/max/step 对应保费范围
         else:
-            amount = random.randrange(amount_cfg.min, amount_cfg.max + 1, amount_cfg.step)
+            input_cfg = self.profile.test.amount    # 保额配置：min/max/step 对应保额范围
 
-        expected_premium = amount * expected_rate / 1000
+        if input_cfg.fixed:
+            input_val = input_cfg.fixed
+        else:
+            input_val = random.randrange(input_cfg.min, input_cfg.max + 1, input_cfg.step)
 
-        # 基础结果
+        # ---- 计算期望输出值 ----
+        if is_type2:
+            # 保费算保额: 期望保额 = 保费 × 费率单位 ÷ 费率
+            expected_output = input_val * fee_unit / expected_rate
+            input_label = "保费(元)"
+            output_label = "期望保额(元)"
+        else:
+            # 保额算保费: 期望保费 = 保额 × 费率 ÷ 费率单位
+            expected_output = input_val * expected_rate / fee_unit
+            input_label = "保额(元)"
+            output_label = "期望保费(元)"
+
+        # ---- 基础结果（列名根据算费方向动态调整） ----
         result = {
             "序号": case_no,
+            "算费方向": "保费算保额" if is_type2 else "保额算保费",
             "保障方案": case.get("保障方案", ""),
             "ensurePlan": ensure_plan,
             "责任计划": plan,
@@ -437,17 +462,20 @@ class BatchTester:
             "性别Code": self.profile.get_gender_code(gender),
             "年龄": age,
             "年龄类型": age_type,
-            "保额(元)": amount,
+            input_label: input_val,
             "期望费率(‰)": expected_rate,
-            "期望保费(元)": round(expected_premium, 2),
+            output_label: round(expected_output, 2),
             "age_rate状态码": None,
             "age_rate结果": "",
             "plan_rate状态码": None,
             "plan_rate结果": "",
-            "API返回fee": None,
+            "API返回值": None,
             "failureReason": None,
             "测试结论": "",
             "备注": "",
+            "_data_type": data_type,       # 内部标记，供 report 动态列名用
+            "_input_label": input_label,
+            "_output_label": output_label,
         }
 
         api = client or self.client
@@ -465,67 +493,63 @@ class BatchTester:
             # Step 2: plan_rate（带金额限制智能重试）
             MAX_RETRIES = 10
             retry_log = []
-            final_fee = None
+            final_result_val = None
             final_status = None
             final_reason = None
             final_ok = False
 
-            for attempt in range(1 + MAX_RETRIES):  # 1 次初始 + 10 次重试
-                ok, fee, status, text, reason = api.save_product(
+            for attempt in range(1 + MAX_RETRIES):
+                ok, result_val, status, text, reason = api.save_product(
                     plan=plan,
                     ensure_period=period,
                     pay_period=pay_period,
-                    amount=amount,
+                    amount=input_val,
                     ensure_plan=ensure_plan,
                     cookies=cookies,
+                    input_type=input_type,
                 )
 
                 if ok:
-                    # 成功，退出重试循环
                     final_ok = True
-                    final_fee = fee
+                    final_result_val = result_val
                     final_status = status
                     final_reason = reason
                     break
 
-                # 失败 → 判断是否需要调整金额重试
                 if attempt >= MAX_RETRIES:
-                    # 已达最大重试次数
-                    final_fee = fee
+                    final_result_val = result_val
                     final_status = status
                     final_reason = reason
                     break
 
                 if reason and self._is_amount_limit_reason(reason):
                     limit = self._parse_amount_limit(reason)
-                    old_amount = amount
+                    old_val = input_val
 
                     if limit:
-                        amount = self._adjust_amount(old_amount, limit, amount_cfg)
+                        input_val = self._adjust_amount(old_val, limit, input_cfg)
                         retry_log.append(
                             f"第{attempt+1}次: {reason} → "
-                            f"保额 {old_amount:,} → {amount:,}"
+                            f"{'保费' if is_type2 else '保额'} {old_val:,} → {input_val:,}"
                             f"(解析: {limit['type']}={limit['value']:,})"
                         )
                     else:
-                        # 关键词匹配但无法解析数值 → 随机换一个金额
-                        amount = random.randrange(
-                            amount_cfg.min, amount_cfg.max + 1, amount_cfg.step
+                        input_val = random.randrange(
+                            input_cfg.min, input_cfg.max + 1, input_cfg.step
                         )
                         retry_log.append(
                             f"第{attempt+1}次: {reason} → "
-                            f"保额 {old_amount:,} → {amount:,} (随机调整)"
+                            f"{'保费' if is_type2 else '保额'} {old_val:,} → {input_val:,} (随机调整)"
                         )
                 else:
-                    # 非金额限制原因（真正的算费失败），不重试
-                    final_fee = fee
+                    final_result_val = result_val
                     final_status = status
                     final_reason = reason
                     break
 
             # 更新结果
-            result["保额(元)"] = amount
-            result["API返回fee"] = final_fee
+            result[input_label] = input_val
+            result["API返回值"] = final_result_val
             result["plan_rate状态码"] = final_status
             result["failureReason"] = final_reason
             if retry_log:
@@ -533,21 +557,25 @@ class BatchTester:
 
             if final_ok:
                 result["plan_rate结果"] = "成功"
-                # 用最终保额重新算期望保费
-                final_expected = amount * expected_rate / 1000
-                result["期望保费(元)"] = round(final_expected, 2)
-                actual_fee = float(final_fee)
-                deviation = (abs(actual_fee - final_expected) / final_expected
+                # 用最终输入值重新算期望输出
+                if is_type2:
+                    final_expected = input_val * fee_unit / expected_rate
+                else:
+                    final_expected = input_val * expected_rate / fee_unit
+                result[output_label] = round(final_expected, 2)
+
+                actual_val = float(final_result_val)
+                deviation = (abs(actual_val - final_expected) / final_expected
                            if final_expected > 0 else float("inf"))
 
                 if deviation < self.profile.test.tolerance:
                     result["测试结论"] = "PASS"
                 else:
                     pct = deviation * 100
-                    result["测试结论"] = f"PASS(费率偏差{pct:.1f}%)"
+                    result["测试结论"] = f"PASS(偏差{pct:.1f}%)"
                     if not retry_log:
                         result["备注"] = (
-                            f"期望{final_expected:.2f}, 实际{actual_fee:.2f}, "
+                            f"期望{final_expected:.2f}, 实际{actual_val:.2f}, "
                             f"偏差{pct:.2f}%"
                         )
             else:
@@ -556,10 +584,10 @@ class BatchTester:
                     result["测试结论"] = f"FAIL - {final_reason}"
                     if retry_log:
                         result["测试结论"] += " (金额调整10次仍失败)"
-                elif final_fee is not None and float(final_fee) == 0:
-                    result["测试结论"] = "FAIL - 计算保费失败(保费为0)"
-                elif final_fee is not None:
-                    result["测试结论"] = "FAIL - API返回异常(fee字段异常)"
+                elif final_result_val is not None and float(final_result_val) == 0:
+                    result["测试结论"] = f"FAIL - 计算失败(返回值为0)"
+                elif final_result_val is not None:
+                    result["测试结论"] = "FAIL - API返回异常"
                 else:
                     result["测试结论"] = "FAIL - plan_rate接口失败"
 

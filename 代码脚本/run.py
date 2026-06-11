@@ -73,7 +73,8 @@ DEFAULT_PRODUCT = {
     "plans": {"type": "simple"},
     "age_limits": {},
     "test": {
-        "amount": {"min": 1000000, "max": 5000000, "step": 1000},
+        "amount": {"min": 1000000, "max": 5000000, "step": 10000},
+        "premium": {"min": 1000, "max": 50000, "step": 100},
         "tolerance": 0.01,
         "throttle": {"interval": 5, "sleep": 0.3},
     },
@@ -149,6 +150,10 @@ def main():
     product_data = dict(DEFAULT_PRODUCT)
     if parsed["product_name"] != "(未标注)":
         product_data["product_name"] = parsed["product_name"]
+    # 从解析结果注入算费方向和费率单位
+    product_data["data_type"] = parsed.get("data_type_code", "1")
+    product_data["fee_unit"] = parsed.get("fee_unit", 1000)
+
     product = ProductProfile.from_dict(product_data)
 
     case_count = parsed["case_count"]

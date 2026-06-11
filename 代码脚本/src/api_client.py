@@ -183,10 +183,11 @@ class InsuranceAPIClient:
         plan: int,
         ensure_period: str,
         pay_period,
-        amount: int,
+        amount: int = 0,
         ensure_plan: str = "1",
         duty_list: list = None,
         cookies=None,
+        input_type: str = "amount",
     ) -> tuple:
         """
         POST 计划费率计算接口。
@@ -195,14 +196,16 @@ class InsuranceAPIClient:
             plan: 责任计划编号 (0-7)
             ensure_period: 保险期间标签（"终身"）
             pay_period: 交费期间（1, 3, 5, 10, 15, 20, 30）
-            amount: 保额（元）
+            amount: 输入值（保额或保费，取决于 input_type）
             ensure_plan: 承保方案（"1"=标准体, "2"=优选体）
             duty_list: 责任选项列表（None=自动从配置构建）
             cookies: 指定 Cookies
+            input_type: "amount" 表示保额算保费（发amount收fee），"premium" 表示保费算保额（发fee收amount）
 
         Returns:
-            (success: bool, fee: float|None, status_code: int,
+            (success: bool, result_value: float|None, status_code: int,
              response_text: str, failure_reason: str|None)
+            result_value: 对于type1是保费（fee），对于type2是保额（sum_insured）
         """
         url = self.profile.plan_rate_url
         d = self.profile.defaults
@@ -210,6 +213,18 @@ class InsuranceAPIClient:
         # 自动构建责任列表
         if duty_list is None:
             duty_list = self.profile.get_duties_for_plan(plan)
+
+        # 根据算费方向构建 payload
+        if input_type == "amount":
+            # 保额算保费：发送保额，API 返回保费
+            amount_descr = str(amount)
+            amount_val = str(amount)
+            fee_val = ""
+        else:
+            # 保费算保额：发送保费，API 返回保额
+            amount_descr = ""
+            amount_val = ""
+            fee_val = str(amount)
 
         payload = {
             "serialNo": self.serial_no,
@@ -222,9 +237,9 @@ class InsuranceAPIClient:
             "payPeriodCode": self.profile.get_pay_period_code(pay_period),
             "payModeCode": self.profile.get_pay_mode_code(pay_period),
             "ensurePlan": ensure_plan,
-            "amountDescr": str(amount),
-            "amount": str(amount),
-            "fee": "",
+            "amountDescr": amount_descr,
+            "amount": amount_val,
+            "fee": fee_val,
             "dutyOptionList": duty_list,
         }
 
@@ -244,8 +259,11 @@ class InsuranceAPIClient:
             result = resp.json()
             code = result.get("code")
 
-            # 从响应提取 fee
-            fee = self._extract_fee(result)
+            # 根据算费方向提取结果
+            if input_type == "amount":
+                result_value = self._extract_fee(result)  # type1: API 返回保费
+            else:
+                result_value = self._extract_sum_insured(result)  # type2: API 返回保额
 
             # 更新动态参数
             info = result.get("info", {})
@@ -256,21 +274,21 @@ class InsuranceAPIClient:
                     self.proposal_id = str(info["proposalId"])
 
             # 成功判断
-            if code == 200 and fee is not None and float(fee) > 0:
+            if code == 200 and result_value is not None and float(result_value) > 0:
                 failure_reason = result.get("info", {}).get("failureReason") if isinstance(result.get("info"), dict) else None
                 if not failure_reason:
                     success = True
             elif code == 500:
                 failure_reason = result.get("message", "服务器内部错误")
             else:
-                # code==200 但 fee 为空/为0 → 检查 failureReason
+                # code==200 但结果为空/为0 → 检查 failureReason
                 if isinstance(result.get("info"), dict):
                     fr = result["info"].get("failureReason")
                     if fr:
                         failure_reason = fr
                 if not failure_reason:
                     failure_reason = result.get("message")
-                # fee=0 且无 failureReason/message 说明 API 实际计算失败,
+                # result_value=0 且无 failureReason/message 说明 API 实际计算失败,
                 # 不设置 success=True, 由上层判定为 FAIL
 
         except (ValueError, AttributeError):
@@ -293,7 +311,7 @@ class InsuranceAPIClient:
             import sys
             print(f"[DEBUG] Failure logged to: {_log_path}", file=sys.stderr, flush=True)
 
-        return success, fee, resp.status_code, resp.text, failure_reason
+        return success, result_value, resp.status_code, resp.text, failure_reason
 
     # ================================================================
     # 便捷方法：完整测试流程
@@ -406,6 +424,45 @@ class InsuranceAPIClient:
         if "fee" in result:
             try:
                 return float(result["fee"])
+            except (ValueError, TypeError):
+                pass
+
+        return None
+
+    @staticmethod
+    def _extract_sum_insured(result: dict) -> Optional[float]:
+        """
+        从 API 响应中多层次提取保额字段。
+
+        尝试路径:
+        1. result.info.amount
+        2. result.info.proposalPlanVOList[0].amount
+        3. result.amount
+        """
+        info = result.get("info", {})
+
+        # 路径 1
+        if isinstance(info, dict) and "amount" in info:
+            try:
+                return float(info["amount"])
+            except (ValueError, TypeError):
+                pass
+
+        # 路径 2
+        if isinstance(info, dict):
+            plan_list = info.get("proposalPlanVOList", [])
+            if plan_list and isinstance(plan_list, list):
+                plan_vo = plan_list[0]
+                if isinstance(plan_vo, dict) and "amount" in plan_vo:
+                    try:
+                        return float(plan_vo["amount"])
+                    except (ValueError, TypeError):
+                        pass
+
+        # 路径 3
+        if "amount" in result:
+            try:
+                return float(result["amount"])
             except (ValueError, TypeError):
                 pass
 

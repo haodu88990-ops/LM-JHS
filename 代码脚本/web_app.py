@@ -91,7 +91,8 @@ DEFAULT_PRODUCT = {
     "plans": {"type": "simple"},
     "age_limits": {},
     "test": {
-        "amount": {"min": 1000000, "max": 5000000, "step": 1000},
+        "amount": {"min": 1000000, "max": 5000000, "step": 10000},
+        "premium": {"min": 1000, "max": 50000, "step": 100},
         "tolerance": 0.01,
         "throttle": {"interval": 5, "sleep": 0.3, "workers": 20},
     },
@@ -267,25 +268,36 @@ def run_test():
                     _tasks[task_id]["error"] = "请填写 product_id 和 company_id（在「产品接口参数」区域）"
                 return
 
-            # 用户输入的保额范围
+            # 用户输入的保额/保费范围（根据算费方向分别覆盖对应配置）
             amount_min = data.get("amount_min")
             amount_max = data.get("amount_max")
             amount_step = data.get("amount_step")
-            if amount_min is not None:
-                try:
-                    product_data["test"]["amount"]["min"] = int(amount_min)
-                except (ValueError, TypeError):
-                    pass
-            if amount_max is not None:
-                try:
-                    product_data["test"]["amount"]["max"] = int(amount_max)
-                except (ValueError, TypeError):
-                    pass
-            if amount_step is not None:
-                try:
-                    product_data["test"]["amount"]["step"] = int(amount_step)
-                except (ValueError, TypeError):
-                    pass
+            premium_min = data.get("premium_min")
+            premium_max = data.get("premium_max")
+            premium_step = data.get("premium_step")
+            # 通用 step（兼容旧前端，同时覆盖 amount.step 和 premium.step）
+            input_step = data.get("input_step")
+
+            def _apply_range(cfg_key, key_min, key_max, key_step):
+                if key_min is not None:
+                    try:
+                        product_data["test"][cfg_key]["min"] = int(key_min)
+                    except (ValueError, TypeError):
+                        pass
+                if key_max is not None:
+                    try:
+                        product_data["test"][cfg_key]["max"] = int(key_max)
+                    except (ValueError, TypeError):
+                        pass
+                step_val = key_step if key_step is not None else input_step
+                if step_val is not None:
+                    try:
+                        product_data["test"][cfg_key]["step"] = int(step_val)
+                    except (ValueError, TypeError):
+                        pass
+
+            _apply_range("amount", amount_min, amount_max, amount_step)
+            _apply_range("premium", premium_min, premium_max, premium_step)
 
             # 用户输入的责任码值映射
             duty_codes = data.get("duty_codes")  # {"责任名": "code", ...}
@@ -344,6 +356,10 @@ def run_test():
                     code_str = str(code).strip()
                     if code_str:
                         product_data.setdefault("mappings", {}).setdefault("ensure_period", {})[raw] = code_str
+
+            # 从解析结果注入算费方向和费率单位
+            product_data["data_type"] = parsed.get("data_type_code", "1")
+            product_data["fee_unit"] = parsed.get("fee_unit", 1000)
 
             product = ProductProfile.from_dict(product_data)
 

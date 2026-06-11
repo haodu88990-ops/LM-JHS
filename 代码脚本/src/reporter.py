@@ -27,21 +27,34 @@ class ReportGenerator:
         gen.generate(results, "API测试报告.xlsx")
     """
 
-    # 24 列表头
-    DETAIL_HEADERS = [
-        "序号", "保障方案", "ensurePlan", "责任计划", "责任描述",
-        "保险期间", "保险期间Code", "交费期间(年)", "交费期间Code", "交费方式Code",
-        "性别", "性别Code", "年龄(岁)", "年龄类型", "保额(元)",
-        "期望费率(‰)", "期望保费(元)",
-        "age_rate\n状态码", "age_rate\n结果",
-        "plan_rate\n状态码", "plan_rate\n结果",
-        "API返回fee", "failureReason", "测试结论",
-    ]
-
-    COL_WIDTHS = [
-        6, 10, 10, 8, 38, 8, 12, 10, 12, 10,
-        6, 8, 8, 10, 14, 12, 14, 10, 10, 10,
-        10, 14, 30, 18,
+    COLUMN_DEFS = [
+        ("序号", "序号", 6),
+        ("算费方向", "算费方向", 10),
+        ("保障方案", "保障方案", 10),
+        ("ensurePlan", "ensurePlan", 10),
+        ("责任计划", "责任计划", 8),
+        ("责任描述", "责任描述", 38),
+        ("保险期间", "保险期间", 8),
+        ("保险期间Code", "保险期间Code", 12),
+        ("交费期间", "交费期间(年)", 10),
+        ("交费期间Code", "交费期间Code", 12),
+        ("交费方式Code", "交费方式Code", 10),
+        ("性别", "性别", 6),
+        ("性别Code", "性别Code", 8),
+        ("年龄", "年龄(岁)", 8),
+        ("年龄类型", "年龄类型", 10),
+        ("保额(元)", "保额(元)", 14),
+        ("保费(元)", "保费(元)", 14),
+        ("期望费率(‰)", "期望费率(‰)", 12),
+        ("期望保费(元)", "期望保费(元)", 14),
+        ("期望保额(元)", "期望保额(元)", 14),
+        ("age_rate状态码", "age_rate\\n状态码", 10),
+        ("age_rate结果", "age_rate\\n结果", 10),
+        ("plan_rate状态码", "plan_rate\\n状态码", 10),
+        ("plan_rate结果", "plan_rate\\n结果", 10),
+        ("API返回值", "API返回值", 14),
+        ("failureReason", "failureReason", 30),
+        ("测试结论", "测试结论", 18),
     ]
 
     # 条件颜色
@@ -107,10 +120,15 @@ class ReportGenerator:
         n_error = sum(1 for r in results if str(r.get("测试结论", "")).startswith("ERROR"))
         pass_rate = (n_pass / n_total * 100) if n_total > 0 else 0
 
+        # ---- 动态构建列序 ----
+        first = results[0] if results else {}
+        active_cols = [(k, h, w) for k, h, w in self.COLUMN_DEFS if k in first]
+        ncols = len(active_cols)
+
         # ---- 第 1 行：标题 ----
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         title = f"{self.product_name} — API 测试报告  生成时间：{ts}" if self.product_name else f"API 测试报告  生成时间：{ts}"
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(self.DETAIL_HEADERS))
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
         c = ws.cell(row=1, column=1, value=title)
         c.font = Font(name="微软雅黑", size=14, bold=True, color="1F4E79")
         c.alignment = Alignment(horizontal="center", vertical="center")
@@ -121,7 +139,7 @@ class ReportGenerator:
             f"总用例: {n_total} | ✅ PASS: {n_pass} ({pass_rate:.1f}%) | "
             f"❌ FAIL: {n_fail} | ⚠ ERROR: {n_error}"
         )
-        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(self.DETAIL_HEADERS))
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=ncols)
         c = ws.cell(row=2, column=1, value=summary)
         c.font = Font(name="微软雅黑", size=10, bold=True, color="333333")
         c.alignment = Alignment(horizontal="left", vertical="center")
@@ -131,7 +149,7 @@ class ReportGenerator:
         hdr_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         hdr_font = Font(name="微软雅黑", size=9, bold=True, color="FFFFFF")
 
-        for col_idx, header in enumerate(self.DETAIL_HEADERS, 1):
+        for col_idx, (_, header, _) in enumerate(active_cols, 1):
             cell = ws.cell(row=3, column=col_idx, value=header)
             cell.font = hdr_font
             cell.fill = hdr_fill
@@ -164,33 +182,13 @@ class ReportGenerator:
 
             row_fill = PatternFill(start_color=row_color, end_color=row_color, fill_type="solid")
 
-            # 按顺序填充 24 列
-            values = [
-                result.get("序号", i + 1),
-                result.get("保障方案", ""),
-                result.get("ensurePlan", ""),
-                result.get("责任计划", ""),
-                result.get("责任描述", ""),
-                result.get("保险期间", ""),
-                result.get("保险期间Code", ""),
-                result.get("交费期间", ""),
-                result.get("交费期间Code", ""),
-                result.get("交费方式Code", ""),
-                result.get("性别", ""),
-                result.get("性别Code", ""),
-                result.get("年龄", ""),
-                result.get("年龄类型", ""),
-                result.get("保额(元)", ""),
-                result.get("期望费率(‰)", ""),
-                result.get("期望保费(元)", ""),
-                result.get("age_rate状态码", ""),
-                result.get("age_rate结果", ""),
-                result.get("plan_rate状态码", ""),
-                result.get("plan_rate结果", ""),
-                result.get("API返回fee", ""),
-                result.get("failureReason", ""),
-                verdict,
-            ]
+            # 按动态列序填充
+            col_keys = [k for k, _, _ in active_cols]
+            values = [result.get(k, "") for k in col_keys]
+            # "测试结论"列用本地变量 verdict
+            if "测试结论" in col_keys:
+                idx_tc = col_keys.index("测试结论")
+                values[idx_tc] = verdict
 
             for col_idx, val in enumerate(values, 1):
                 cell = ws.cell(row=row_num, column=col_idx, value=val)
@@ -200,12 +198,12 @@ class ReportGenerator:
                 cell.border = thin_border
 
         # ---- 列宽 ----
-        for col_idx, width in enumerate(self.COL_WIDTHS, 1):
+        for col_idx, (_, _, width) in enumerate(active_cols, 1):
             ws.column_dimensions[get_column_letter(col_idx)].width = width
 
         # ---- 冻结 ----
         ws.freeze_panes = "A4"
-        ws.auto_filter.ref = f"A3:{get_column_letter(len(self.DETAIL_HEADERS))}{3 + n_total}"
+        ws.auto_filter.ref = f"A3:{get_column_letter(ncols)}{3 + n_total}"
 
     # ================================================================
     # Sheet 2: 汇总统计

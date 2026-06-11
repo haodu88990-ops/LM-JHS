@@ -184,10 +184,20 @@ class AgeLimitsConfig:
 
 @dataclass
 class AmountConfig:
+    """保额算保费(type=1)的输入配置 —— 随机保额范围及产品增减步长"""
     fixed: Optional[int] = None
     min: int = 1000000
     max: int = 5000000
-    step: int = 1000
+    step: int = 10000          # 产品的保额增减步长（如每万元），≠ 费率表的 fee_unit
+
+
+@dataclass
+class PremiumConfig:
+    """保费算保额(type=2)的输入配置 —— 随机保费范围及产品增减步长"""
+    fixed: Optional[int] = None
+    min: int = 1000            # 保费通常几百到几万
+    max: int = 50000
+    step: int = 100            # 保费步长通常100元
 
 
 @dataclass
@@ -200,6 +210,7 @@ class ThrottleConfig:
 @dataclass
 class TestConfig:
     amount: AmountConfig = field(default_factory=AmountConfig)
+    premium: PremiumConfig = field(default_factory=PremiumConfig)
     tolerance: float = 0.01
     throttle: ThrottleConfig = field(default_factory=ThrottleConfig)
 
@@ -223,6 +234,11 @@ class ProductProfile:
         self._raw = data
         self.product_name: str = data.get("product_name", "未命名产品")
 
+        self.data_type: str = str(data.get("data_type", "1"))
+        self.fee_unit: int = int(data.get("fee_unit", 1000))
+        self.output_data_type: str = str(data.get("output_data_type", "1"))
+
+
         self.api = APIConfig(**data.get("api", {}))
         self.credentials = CredentialsConfig(**data.get("credentials", {}))
         self.product = ProductIdConfig(**data.get("product", {}))
@@ -233,10 +249,13 @@ class ProductProfile:
         test_raw = data.get("test", {})
         amount_raw = test_raw.get("amount", {})
         amount = AmountConfig(**amount_raw) if isinstance(amount_raw, dict) else amount_raw
+        premium_raw = test_raw.get("premium", {})
+        premium = PremiumConfig(**premium_raw) if isinstance(premium_raw, dict) else premium_raw
         throttle_raw = test_raw.get("throttle", {})
         throttle = ThrottleConfig(**throttle_raw) if isinstance(throttle_raw, dict) else throttle_raw
         self.test = TestConfig(
             amount=amount,
+            premium=premium,
             tolerance=test_raw.get("tolerance", 0.01),
             throttle=throttle,
         )
@@ -267,6 +286,10 @@ class ProductProfile:
     @property
     def plan_rate_url(self) -> str:
         return f"{self.api.base_url}{self.api.plan_rate_endpoint}"
+
+    @property
+    def is_premium_to_coverage(self) -> bool:
+        return self.data_type == "2"
 
     # ---- 代码映射 ----
 

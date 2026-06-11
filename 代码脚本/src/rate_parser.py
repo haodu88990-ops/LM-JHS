@@ -160,7 +160,8 @@ class RateTableParser:
         if fee_unit != 1000:
             meta["fee_unit"] = fee_unit
         meta["fee_rule"] = fee_rule
-        meta["data_type"] = data_type_code
+        if data_type_code != "1":
+            meta["data_type"] = data_type_code
 
         return self._build_result(all_rows, product_name, meta,
                                   [s for s in sheets
@@ -785,6 +786,7 @@ class RateTableParser:
             "format": "auto",
             "product_name": product_name or meta.get("product_name", "") or "(未标注)",
             "data_type": data_type_label,
+            "data_type_code": data_type,
             "fee_unit": meta.get("fee_unit", 1000),
             "fee_rule": meta.get("fee_rule", "四舍五入保留2位小数"),
             "dims": {k: sorted(v, key=str) for k, v in dims.items()},
