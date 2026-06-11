@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>保费测算工具</title>
 <style>
@@ -377,9 +378,11 @@ async function parseFile() {
   const form = new FormData();
   form.append('file', currentFile);
 
-  // 60 秒超时（防止请求卡死）
+  // 根据文件大小动态设置超时：<5MB = 60s，5~20MB = 180s，>20MB = 300s
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000);
+  const timeoutMs = currentFile.size < 5 * 1024 * 1024 ? 60000 :
+    currentFile.size < 20 * 1024 * 1024 ? 180000 : 300000;
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
 
   try {
     const resp = await fetch('/api/upload', {
@@ -401,7 +404,8 @@ async function parseFile() {
   } catch(e) {
     clearTimeout(timer);
     if (e.name === 'AbortError') {
-      showError('上传超时 (60s)，文件过大或服务器处理过慢，请检查:\n1. 文件是否过大 (上限 32MB)\n2. 服务器控制台是否有报错');
+      const sizeMb = (currentFile.size / 1024 / 1024).toFixed(1);
+      showError(`上传超时 (${timeoutMs / 1000}s)，文件 (${sizeMb}MB) 过大或服务器处理过慢，请检查:\n1. 文件是否过大 (上限 32MB)\n2. 服务器控制台是否有报错\n3. PDF 文件页数过多时解析较慢，建议使用 Excel 格式`);
     } else if (e.message === 'Failed to fetch') {
       showError('上传失败: 服务器连接中断\n\n可能原因:\n1. 服务器在处理文件时崩溃，请查看终端报错\n2. 文件格式异常导致解析器崩溃\n3. 浏览器扩展拦截了请求\n\n请检查服务器控制台输出后重试');
     } else {
