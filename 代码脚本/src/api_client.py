@@ -200,7 +200,7 @@ class InsuranceAPIClient:
             ensure_plan: 承保方案（"1"=标准体, "2"=优选体）
             duty_list: 责任选项列表（None=自动从配置构建）
             cookies: 指定 Cookies
-            input_type: "amount" 表示保额算保费（发amount收fee），"premium" 表示保费算保额（发fee收amount）
+            input_type: "amount" 表示保额算保费（发amount收fee），"premium" 表示保费算保额（发premium收amount）
 
         Returns:
             (success: bool, result_value: float|None, status_code: int,
@@ -220,11 +220,13 @@ class InsuranceAPIClient:
             amount_descr = str(amount)
             amount_val = str(amount)
             fee_val = ""
+            premium_val = ""
         else:
             # 保费算保额：发送保费，API 返回保额
             amount_descr = ""
             amount_val = ""
-            fee_val = str(amount)
+            fee_val = ""
+            premium_val = str(amount)
 
         payload = {
             "serialNo": self.serial_no,
@@ -232,7 +234,7 @@ class InsuranceAPIClient:
             "companyId": self.profile.product.company_id,
             "proposalId": self.proposal_id,
             "dividendDrawType": d.dividend_draw_type,
-            "premium": "",
+            "premium": premium_val,
             "ensurePeriodCode": self.profile.get_ensure_period_code(ensure_period),
             "payPeriodCode": self.profile.get_pay_period_code(pay_period),
             "payModeCode": self.profile.get_pay_mode_code(pay_period),

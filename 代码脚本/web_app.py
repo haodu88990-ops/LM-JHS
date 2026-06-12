@@ -52,6 +52,8 @@ def handle_500(e):
 # 上传文件暂存
 UPLOAD_DIR = BASE_DIR.parent / "_uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
+REPORT_DIR = BASE_DIR.parent / "reports"
+REPORT_DIR.mkdir(exist_ok=True)
 
 # 后台任务状态存储（用于 SSE 进度推送）
 _tasks = {}          # task_id -> {"status", "current", "total", "message", "report_path", "error", "results"}
@@ -223,8 +225,8 @@ def run_test():
         return jsonify({"error": "费率表文件丢失，请重新上传"}), 400
 
     task_id = uuid.uuid4().hex[:12]
-    # 报告统一保存到 _uploads 目录（避免 original_path 被 File.path 传空导致路径错乱）
-    report_dir = str(UPLOAD_DIR)
+    # 报告统一保存到 reports 目录
+    report_dir = str(REPORT_DIR)
 
     with _tasks_lock:
         # 清理超过 10 分钟的过期任务（SSE 从未连接的情况）
@@ -509,7 +511,7 @@ def download():
         return jsonify({"error": "报告文件不存在，可能已被清理"}), 404
 
     # 安全检查：确保路径在允许的目录下
-    allowed_dirs = [str(UPLOAD_DIR), os.path.dirname(str(UPLOAD_DIR))]
+    allowed_dirs = [str(UPLOAD_DIR), str(REPORT_DIR), os.path.dirname(str(UPLOAD_DIR))]
     real_path = os.path.realpath(report_path)
     if not any(real_path.startswith(os.path.realpath(d)) for d in allowed_dirs):
         return jsonify({"error": "路径不被允许"}), 403

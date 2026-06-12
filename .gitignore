@@ -6,3 +6,6 @@
 
 # Uploaded rate table files
 _uploads/
+
+# Generated test reports
+reports/*.xlsx
